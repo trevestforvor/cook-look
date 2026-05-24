@@ -256,8 +256,19 @@ export interface ContrastFix {
   after: number;
 }
 
+/** A pairing where fixContrast could not reach the target (physics ceiling). */
+export interface ContrastUnreachable {
+  label: string;
+  /** Best contrast actually achieved. */
+  best: number;
+  /** The target that could not be met. */
+  target: number;
+}
+
 /** Result of {@link fixContrast}. */
 export interface FixContrastResult {
   palette: Palette;
   changes: ContrastFix[];
+  /** Pairings where the target contrast was unreachable (best-effort applied). */
+  unreachable: ContrastUnreachable[];
 }

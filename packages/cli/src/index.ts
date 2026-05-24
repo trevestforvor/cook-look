@@ -242,18 +242,41 @@ async function cmdPaletteFix(values: CliValues): Promise<void> {
   const use =
     values.use === "large" || values.use === "nonText" ? values.use : "body";
   const level = values.level === "AAA" ? "AAA" : "AA";
-  const { palette: fixed, changes } = fixContrast({
+  const { palette: fixed, changes, unreachable } = fixContrast({
     palette,
     target: { model, use, level },
   });
   if (values.json) {
-    out(JSON.stringify({ palette: fixed, changes }));
+    // Emit the bare palette (same shape as `generate --json`) so commands pipe.
+    // Changes and unreachable targets go to stderr to stay out of the data stream.
+    if (changes.length > 0) {
+      process.stderr.write(`Applied ${changes.length} fix(es)\n`);
+    }
+    if (unreachable && unreachable.length > 0) {
+      for (const u of unreachable) {
+        process.stderr.write(
+          `chroma: ${u.label}: could not reach target — best achievable ${model === "apca" ? "APCA Lc" : "WCAG"} ${u.best}\n`,
+        );
+      }
+    }
+    out(JSON.stringify(fixed));
   } else {
-    if (changes.length === 0) out("No changes — palette already meets the target.");
-    else {
-      out(`Applied ${changes.length} fix(es):`);
-      for (const c of changes) {
-        out(`  ${c.label}: ${c.reason} (${c.before} → ${c.after})`);
+    if (changes.length === 0 && (!unreachable || unreachable.length === 0)) {
+      out("No changes — palette already meets the target.");
+    } else {
+      if (changes.length > 0) {
+        out(`Applied ${changes.length} fix(es):`);
+        for (const c of changes) {
+          out(`  ${c.label}: ${c.reason} (${c.before} → ${c.after})`);
+        }
+      }
+      if (unreachable && unreachable.length > 0) {
+        out(`Could not reach target for ${unreachable.length} pairing(s):`);
+        for (const u of unreachable) {
+          out(
+            `  ${u.label}: best achievable ${model === "apca" ? "APCA Lc" : "WCAG"} ${u.best} (target ${u.target})`,
+          );
+        }
       }
       out("");
     }

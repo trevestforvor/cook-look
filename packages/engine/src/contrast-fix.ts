@@ -15,6 +15,7 @@ import {
   type ContrastFix,
   type ContrastModel,
   type ContrastTarget,
+  type ContrastUnreachable,
   type ContrastUse,
   type FixContrastResult,
   type OnRole,
@@ -91,8 +92,9 @@ function fixTheme(
   model: ContrastModel,
   threshold: number,
   modeLabel: ThemeMode,
-): { theme: ThemePalette; changes: ContrastFix[] } {
+): { theme: ThemePalette; changes: ContrastFix[]; unreachable: ContrastUnreachable[] } {
   const changes: ContrastFix[] = [];
+  const unreachable: ContrastUnreachable[] = [];
   const roles = { ...theme.roles };
   const on = { ...theme.on };
 
@@ -103,16 +105,36 @@ function fixTheme(
     model,
     threshold,
   );
-  if (fgResult.swatch !== roles.foreground && fgResult.after > fgResult.before) {
-    changes.push({
+  if (fgResult.after >= threshold) {
+    if (fgResult.swatch !== roles.foreground) {
+      changes.push({
+        label: `${modeLabel}: foreground`,
+        from: roles.foreground,
+        to: fgResult.swatch,
+        reason: directionReason(roles.foreground, fgResult.swatch, model, threshold),
+        before: round1(fgResult.before),
+        after: round1(fgResult.after),
+      });
+      roles.foreground = fgResult.swatch;
+    }
+  } else if (fgResult.before < threshold) {
+    // Target unreachable — apply best-effort and report.
+    if (fgResult.swatch !== roles.foreground && fgResult.after > fgResult.before) {
+      changes.push({
+        label: `${modeLabel}: foreground`,
+        from: roles.foreground,
+        to: fgResult.swatch,
+        reason: directionReason(roles.foreground, fgResult.swatch, model, threshold),
+        before: round1(fgResult.before),
+        after: round1(fgResult.after),
+      });
+      roles.foreground = fgResult.swatch;
+    }
+    unreachable.push({
       label: `${modeLabel}: foreground`,
-      from: roles.foreground,
-      to: fgResult.swatch,
-      reason: directionReason(roles.foreground, fgResult.swatch, model, threshold),
-      before: round1(fgResult.before),
-      after: round1(fgResult.after),
+      best: round1(fgResult.after),
+      target: threshold,
     });
-    roles.foreground = fgResult.swatch;
   }
 
   // On-colors for each colored role.
@@ -127,20 +149,40 @@ function fixTheme(
   for (const role of onRoles) {
     const bg = roles[role];
     const result = nudgeForeground(on[role], [bg], model, threshold);
-    if (result.swatch !== on[role] && result.after > result.before) {
-      changes.push({
+    if (result.after >= threshold) {
+      if (result.swatch !== on[role]) {
+        changes.push({
+          label: `${modeLabel}: on-${role}`,
+          from: on[role],
+          to: result.swatch,
+          reason: directionReason(on[role], result.swatch, model, threshold),
+          before: round1(result.before),
+          after: round1(result.after),
+        });
+        on[role] = result.swatch;
+      }
+    } else if (result.before < threshold) {
+      // Target unreachable — apply best-effort and report.
+      if (result.swatch !== on[role] && result.after > result.before) {
+        changes.push({
+          label: `${modeLabel}: on-${role}`,
+          from: on[role],
+          to: result.swatch,
+          reason: directionReason(on[role], result.swatch, model, threshold),
+          before: round1(result.before),
+          after: round1(result.after),
+        });
+        on[role] = result.swatch;
+      }
+      unreachable.push({
         label: `${modeLabel}: on-${role}`,
-        from: on[role],
-        to: result.swatch,
-        reason: directionReason(on[role], result.swatch, model, threshold),
-        before: round1(result.before),
-        after: round1(result.after),
+        best: round1(result.after),
+        target: threshold,
       });
-      on[role] = result.swatch;
     }
   }
 
-  return { theme: { ...theme, roles, on }, changes };
+  return { theme: { ...theme, roles, on }, changes, unreachable };
 }
 
 function directionReason(
@@ -176,6 +218,7 @@ export function fixContrast(input: {
   return {
     palette: { ...input.palette, light: light.theme, dark: dark.theme },
     changes: [...light.changes, ...dark.changes],
+    unreachable: [...light.unreachable, ...dark.unreachable],
   };
 }
 
