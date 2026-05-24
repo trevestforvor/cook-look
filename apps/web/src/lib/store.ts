@@ -12,6 +12,12 @@ import {
   type Palette,
   type ThemeMode,
 } from "@chroma/engine";
+import type {
+  AgentResponse,
+  ChatMessage,
+  DesignBrief,
+  ToolEvent,
+} from "@chroma/agent";
 
 /**
  * The single source of truth for the editor. The palette is engine output;
@@ -36,6 +42,25 @@ export interface ChromaState {
   toggleMode: () => void;
   applyFix: (target?: ContrastTarget) => void;
   clearFix: () => void;
+
+  // --- Part 2: AI design agent (drives the same palette state) ---
+  brief: DesignBrief | null;
+  chat: ChatMessage[];
+  toolEvents: ToolEvent[];
+  agentBusy: boolean;
+  agentError: string | null;
+  setBrief: (brief: DesignBrief) => void;
+  sendToAgent: (text: string) => Promise<void>;
+}
+
+/** Adopt an engine-produced palette as the source of truth, syncing the wheel. */
+function adoptPalette(palette: Palette): Partial<ChromaState> {
+  return {
+    palette,
+    base: palette.baseColor,
+    harmony: palette.harmony,
+    lastFix: null,
+  };
 }
 
 const INITIAL_BASE: Oklch = { l: 0.62, c: 0.19, h: 256 };
@@ -100,4 +125,60 @@ export const useChroma = create<ChromaState>((set, get) => ({
   },
 
   clearFix: () => set({ lastFix: null }),
+
+  brief: null,
+  chat: [],
+  toolEvents: [],
+  agentBusy: false,
+  agentError: null,
+
+  setBrief: (brief) => set({ brief }),
+
+  sendToAgent: async (text) => {
+    const trimmed = text.trim();
+    if (!trimmed || get().agentBusy) return;
+
+    const userMessage: ChatMessage = { role: "user", content: trimmed };
+    const history = [...get().chat, userMessage];
+    set({ chat: history, agentBusy: true, agentError: null });
+
+    try {
+      const res = await fetch("/api/agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: history,
+          palette: get().palette,
+          brief: get().brief,
+        }),
+      });
+
+      if (!res.ok) {
+        const { error } = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        set({
+          agentBusy: false,
+          agentError: error ?? `Agent request failed (${res.status}).`,
+        });
+        return;
+      }
+
+      const result = (await res.json()) as AgentResponse;
+      set((s) => ({
+        chat: [...s.chat, { role: "assistant", content: result.reply }],
+        // The agent's tool calls drive the SAME palette state the wheel edits.
+        ...(result.palette ? adoptPalette(result.palette) : {}),
+        brief: result.brief ?? s.brief,
+        toolEvents: result.toolEvents,
+        agentBusy: false,
+      }));
+    } catch (err) {
+      set({
+        agentBusy: false,
+        agentError:
+          err instanceof Error ? err.message : "Could not reach the agent.",
+      });
+    }
+  },
 }));

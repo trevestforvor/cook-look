@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "pnpm --filter @chroma/web dev",
     "build": "pnpm --filter @chroma/web build",
-    "test": "pnpm --filter @chroma/engine test",
+    "test": "pnpm -r test",
     "test:watch": "pnpm --filter @chroma/engine test:watch",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint"

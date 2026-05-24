@@ -1,6 +1,8 @@
 import { AccessibilityPanel } from "@/components/AccessibilityPanel";
+import { AssistPanel } from "@/components/AssistPanel";
 import { ColorWheel } from "@/components/ColorWheel";
 import { Controls } from "@/components/Controls";
+import { DesignBriefCard } from "@/components/DesignBriefCard";
 import { ExportPanel } from "@/components/ExportPanel";
 import { ModeToggle } from "@/components/ModeToggle";
 import { PaletteGrid } from "@/components/PaletteGrid";
@@ -58,6 +60,7 @@ export default function Page() {
         </div>
 
         <div className="flex flex-col gap-5 xl:col-span-5">
+          <DesignBriefCard />
           <Panel title="Palette">
             <PaletteGrid />
           </Panel>
@@ -67,19 +70,11 @@ export default function Page() {
         </div>
 
         <div className="flex flex-col gap-5 xl:col-span-3">
+          <Panel title="Assistant">
+            <AssistPanel />
+          </Panel>
           <Panel title="Accessibility">
             <AccessibilityPanel />
-          </Panel>
-          <Panel>
-            <div className="text-xs leading-relaxed text-neutral-400">
-              <span className="font-semibold text-neutral-200">
-                Assist panel (Part 2).
-              </span>{" "}
-              A provider-agnostic AI design agent will steer this exact palette
-              state through the engine&apos;s typed tool API — it never emits
-              color values directly. The store is the single source of truth the
-              agent and the wheel both edit.
-            </div>
           </Panel>
         </div>
       </div>
