@@ -99,6 +99,38 @@ export function isInGamut(o: Oklch): boolean {
 }
 
 /**
+ * Fast OKLCH→sRGB conversion for dense visualization work (e.g. drawing the
+ * color wheel pixel by pixel). Does a single conversion and clamps each channel
+ * to [0,255] instead of gamut-mapping by chroma reduction — out-of-gamut pixels
+ * get an approximate color plus an `inGamut: false` flag so the UI can dim them.
+ *
+ * Use {@link resolveSwatch} for any actual color value (tokens, the palette);
+ * this trades exactness for ~20× less work and is display-only.
+ */
+export function displayRgb255(o: Oklch): {
+  r: number;
+  g: number;
+  b: number;
+  inGamut: boolean;
+} {
+  const rgb = toRgb(toCulori(o)) as Rgb;
+  const eps = 1e-4;
+  const inGamut =
+    rgb.r >= -eps &&
+    rgb.r <= 1 + eps &&
+    rgb.g >= -eps &&
+    rgb.g <= 1 + eps &&
+    rgb.b >= -eps &&
+    rgb.b <= 1 + eps;
+  return {
+    r: Math.round(clamp(rgb.r, 0, 1) * 255),
+    g: Math.round(clamp(rgb.g, 0, 1) * 255),
+    b: Math.round(clamp(rgb.b, 0, 1) * 255),
+    inGamut,
+  };
+}
+
+/**
  * Largest chroma that keeps (l, h) inside the sRGB gamut, found by binary
  * search. Useful for building ramps that hug the gamut boundary.
  */

@@ -32,16 +32,27 @@ export interface Swatch {
   clamped: boolean;
 }
 
-/** Named color-theory harmonies, all computed in OKLCH hue space. */
+/**
+ * Named color-theory harmonies. Most are defined by a set of hue *offsets* from
+ * the base (computed in OKLCH hue space). Two are special-cased:
+ * - `shades` is single-hue: families share the base hue and step in lightness/
+ *   value rather than rotating hue (offset-based verification is N/A).
+ * - `custom` takes arbitrary user-supplied hue offsets via
+ *   {@link HarmonyOptions.customAngles}.
+ */
 export type HarmonyType =
   | "complementary"
   | "split-complementary"
+  | "double-split-complementary"
   | "analogous"
   | "monochromatic"
   | "triadic"
   | "tetradic"
   | "square"
-  | "rectangular";
+  | "rectangular"
+  | "compound"
+  | "shades"
+  | "custom";
 
 /** Tonal ramp steps (Material-style), light → dark. */
 export type RampStep =
@@ -68,7 +79,23 @@ export interface TonalRamp {
   steps: Record<RampStep, Swatch>;
 }
 
-/** Semantic color roles that make up a design system. */
+/**
+ * Semantic color roles that make up a design system.
+ *
+ * The set fuses Material 3 and Apple HIG conventions, adapted to OKLCH:
+ * - the three brand families (primary/secondary/accent) plus neutral;
+ * - the surface stack (background, surface, surface-elevated,
+ *   background-elevated for dark) and foreground tiers
+ *   (foreground, foreground-secondary, foreground-tertiary);
+ * - container pairs for the brand families
+ *   (`<role>-container` + `on-<role>-container`), an M3-style tonal pairing;
+ * - outline + outline-variant from the neutral ramp; and the semantic status
+ *   trio (success/warning/danger).
+ *
+ * Every value is derived from an existing tonal ramp step (see {@link RampStep})
+ * — no new tone scale is invented — and every new text pairing is validated by
+ * the APCA auditor rather than inheriting M3's WCAG tone deltas.
+ */
 export type Role =
   | "primary"
   | "secondary"
@@ -79,7 +106,26 @@ export type Role =
   | "foreground"
   | "success"
   | "warning"
-  | "danger";
+  | "danger"
+  // Expanded role set (Material 3 + Apple HIG, adapted to OKLCH).
+  | "primary-container"
+  | "secondary-container"
+  | "accent-container"
+  | "surface-elevated"
+  | "background-elevated"
+  | "outline"
+  | "outline-variant"
+  | "foreground-secondary"
+  | "foreground-tertiary";
+
+/** Brand families that carry a tonal container pair. */
+export type ContainerRole = "primary" | "secondary" | "accent";
+
+/** Container roles (`<family>-container`) added to the role set. */
+export type ContainerRoleName =
+  | "primary-container"
+  | "secondary-container"
+  | "accent-container";
 
 /** Roles that carry a full tonal ramp. */
 export type RampRole =
@@ -100,7 +146,11 @@ export type OnRole =
   | "surface"
   | "success"
   | "warning"
-  | "danger";
+  | "danger"
+  // On-color for each brand container (M3 tonal pairing).
+  | "primary-container"
+  | "secondary-container"
+  | "accent-container";
 
 export type ThemeMode = "light" | "dark";
 
@@ -126,6 +176,21 @@ export interface PaletteSeeds {
   hues: Record<RampRole, number>;
   /** Intended maximum chroma per chromatic family. */
   chroma: Record<RampRole, number>;
+  /**
+   * Optional per-role override of the ramp step used as the role's "main"
+   * swatch, per mode. Used by single-hue harmonies (e.g. `shades`) to give each
+   * family a distinct *value* of the same color. When absent for a role, the
+   * mode's default main step (light 500 / dark 400) is used.
+   */
+  mainSteps?: Partial<Record<RampRole, Record<ThemeMode, RampStep>>>;
+  /**
+   * Resolved hue offsets (degrees from base) that defined this palette's
+   * harmony, normalized so index 0 is the base. Persisted so an audit can
+   * verify the realized ramp hues against the intended offsets — notably for
+   * the `custom` harmony, whose angles are user-supplied and not otherwise
+   * recoverable. Absent for single-hue harmonies (`shades`).
+   */
+  harmonyOffsets?: number[];
 }
 
 /** A coherent light+dark palette plus the seeds that produced it. */
@@ -145,6 +210,12 @@ export interface GeneratePaletteOptions {
   primaryChroma?: number;
   /** Chroma multiplier for neutral tinting (default 0.02 of primary). */
   neutralChroma?: number;
+  /**
+   * Hue offsets (degrees from the base) for the `custom` harmony. Index 0 is
+   * treated as the base; the first three entries map to primary/secondary/
+   * accent. Ignored for every harmony except `custom`.
+   */
+  customAngles?: number[];
 }
 
 /** Structured, perceptual adjustment intent for {@link adjustColor}. */
@@ -215,6 +286,13 @@ export interface HarmonyAudit {
   measuredOffsets: number[];
   /** True when every measured offset is within tolerance of an expected one. */
   ok: boolean;
+  /**
+   * True for single-hue harmonies (e.g. `shades`) where families intentionally
+   * share the base hue, so hue-offset verification does not apply. When true,
+   * {@link ok} is reported as `true` (the harmony is trivially satisfied) and a
+   * consumer should display an "offset check N/A" note instead of pass/fail.
+   */
+  singleHue: boolean;
 }
 
 /** Per-mode audit. */
@@ -225,6 +303,18 @@ export interface ModeAudit {
   clamped: string[];
 }
 
+/**
+ * Non-fatal palette-composition warnings (taste/quality, not accessibility).
+ * Surfaced in the audit so a consumer can flag a palette that is technically
+ * accessible but unbalanced or off-harmony, without failing it.
+ */
+export interface PaletteWarning {
+  /** Machine-readable category. */
+  kind: "balance" | "harmony-outlier";
+  /** Human-readable explanation. */
+  message: string;
+}
+
 /** Full palette audit returned by {@link auditPalette}. */
 export interface PaletteAudit {
   harmony: HarmonyAudit;
@@ -232,6 +322,8 @@ export interface PaletteAudit {
   dark: ModeAudit;
   /** True when every body-text pairing meets the APCA body threshold in both modes. */
   passesBodyApca: boolean;
+  /** Non-fatal composition warnings (balance, harmony outliers). */
+  warnings: PaletteWarning[];
 }
 
 /** Target spec for {@link fixContrast}. */

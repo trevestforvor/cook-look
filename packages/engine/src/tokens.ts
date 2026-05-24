@@ -29,6 +29,16 @@ const ROLES: readonly Role[] = [
   "success",
   "warning",
   "danger",
+  // Expanded role set (M3 + Apple HIG, adapted to OKLCH).
+  "primary-container",
+  "secondary-container",
+  "accent-container",
+  "surface-elevated",
+  "background-elevated",
+  "outline",
+  "outline-variant",
+  "foreground-secondary",
+  "foreground-tertiary",
 ];
 
 const ON_ROLES: readonly OnRole[] = [
@@ -40,6 +50,9 @@ const ON_ROLES: readonly OnRole[] = [
   "success",
   "warning",
   "danger",
+  "primary-container",
+  "secondary-container",
+  "accent-container",
 ];
 
 const RAMP_ROLES: readonly RampRole[] = [
@@ -99,13 +112,38 @@ ${darkMedia}
 `;
 }
 
-/** Color tree for the Tailwind config (values reference the CSS variables). */
+/** Non-ramp roles emitted as flat Tailwind color tokens. */
+const FLAT_ROLES: readonly Role[] = [
+  "background",
+  "surface",
+  "foreground",
+  "surface-elevated",
+  "background-elevated",
+  "outline",
+  "outline-variant",
+  "foreground-secondary",
+  "foreground-tertiary",
+];
+
+/** Container roles emitted as nested `{ DEFAULT, foreground }` tokens. */
+const CONTAINER_ROLES: readonly Role[] = [
+  "primary-container",
+  "secondary-container",
+  "accent-container",
+];
+
+/**
+ * Color tree for the Tailwind config (values reference the CSS variables).
+ *
+ * Ramp families (`primary` … `danger`) expose the full nested scale
+ * `{ 50 … 950, DEFAULT, foreground }`. Containers expose `{ DEFAULT, foreground }`
+ * (their on-color). Remaining single-value roles are flat strings.
+ */
 export function toTailwindColors(): Record<string, unknown> {
-  const colors: Record<string, unknown> = {
-    background: "var(--color-background)",
-    surface: "var(--color-surface)",
-    foreground: "var(--color-foreground)",
-  };
+  const colors: Record<string, unknown> = {};
+  for (const role of FLAT_ROLES) {
+    colors[role] = `var(--color-${role})`;
+  }
   for (const role of RAMP_ROLES) {
     const entry: Record<string, string> = {
       DEFAULT: `var(--color-${role})`,
@@ -117,6 +155,12 @@ export function toTailwindColors(): Record<string, unknown> {
       entry[String(step)] = `var(--color-${role}-${step})`;
     }
     colors[role] = entry;
+  }
+  for (const role of CONTAINER_ROLES) {
+    colors[role] = {
+      DEFAULT: `var(--color-${role})`,
+      foreground: `var(--color-on-${role})`,
+    };
   }
   return colors;
 }
@@ -162,11 +206,29 @@ function themeTokens(theme: ThemePalette) {
   return { roles, on, ramps };
 }
 
+/**
+ * Role usage weights reflecting the 60-30-10 composition guidance. `primary` is
+ * the dominant brand color, `accent` the call-to-action / accent, and the
+ * neutrals/surfaces carry the supporting 60%. JSON-only metadata; the CSS and
+ * Tailwind exports stay pure token values.
+ */
+const ROLE_USAGE: Record<string, { weight: "dominant" | "accent" | "supporting"; note: string }> = {
+  primary: { weight: "dominant", note: "dominant brand color (the ~30 in 60-30-10)" },
+  accent: { weight: "accent", note: "call-to-action / accent color (the ~10 in 60-30-10)" },
+  secondary: { weight: "supporting", note: "supporting brand color" },
+  neutral: { weight: "supporting", note: "neutral ground (part of the ~60 in 60-30-10)" },
+  surface: { weight: "supporting", note: "surface ground (part of the ~60 in 60-30-10)" },
+  background: { weight: "supporting", note: "background ground (part of the ~60 in 60-30-10)" },
+};
+
 /** Export the palette as a structured JSON token tree. */
 export function toJSON(palette: Palette): string {
   const tree = {
     harmony: palette.harmony,
     baseColor: palette.baseColor,
+    meta: {
+      usage: ROLE_USAGE,
+    },
     light: themeTokens(palette.light),
     dark: themeTokens(palette.dark),
   };
