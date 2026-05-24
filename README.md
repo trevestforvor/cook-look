@@ -37,7 +37,7 @@ APIs):
 Prerequisites: **Node ≥ 18.18** and **pnpm ≥ 9** (`npm i -g pnpm`).
 
 ```bash
-git clone [<repo-url>](https://github.com/trevestforvor/cook-look/tree/main) && cd cook-look
+git clone https://github.com/trevestforvor/cook-look/ && cd cook-look
 pnpm install
 ```
 
