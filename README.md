@@ -29,21 +29,127 @@ APIs):
 | --- | --- |
 | [`packages/engine`](packages/engine) | Pure, deterministic, fully unit-tested OKLCH color engine. The source of truth. No network / LLM / React. |
 | [`packages/agent`](packages/agent) | Provider-agnostic AI design agent. Exposes the engine as tools, binds a written methodology via the system prompt, and runs a provider-neutral tool loop over OpenAI **and** Anthropic. |
+| [`packages/cli`](packages/cli) | A composable, agent-friendly `chroma` CLI over the engine (noun-verb commands, `--json` output, pipeable). |
 | [`apps/web`](apps/web) | Next.js (App Router) + Tailwind editor: interactive color wheel, live palette, accessibility panel, preview, token export, and an **assist panel** driven by the agent. |
 
-## Quick start
+## Installation
+
+Prerequisites: **Node ≥ 18.18** and **pnpm ≥ 9** (`npm i -g pnpm`).
 
 ```bash
+git clone <repo-url> && cd cook-look
 pnpm install
-pnpm dev        # runs the editor at http://localhost:3000
-pnpm test       # runs the engine + agent test suites (130 tests)
-pnpm typecheck
 ```
 
-The engine and editor run with **no environment variables**. The AI assist panel
-needs a provider key — copy `.env.example` to `.env` and set `LLM_PROVIDER` plus
-the matching key. Keys are read server-side (in `/api/agent`) and never reach the
-browser.
+That's the whole setup for the engine, the editor, and the test suite — **no
+environment variables required**. Only the AI assistant needs a provider key
+(see below).
+
+Useful root scripts:
+
+| Command | What it does |
+| --- | --- |
+| `pnpm dev` | Run the web editor at http://localhost:3000 |
+| `pnpm test` | Run the engine + agent test suites (130 tests) |
+| `pnpm typecheck` | Strict typecheck across all packages |
+| `pnpm build` | Production build of the web app |
+| `pnpm build:cli` | Build the `chroma` CLI to `packages/cli/dist/index.js` |
+
+## Using Chroma
+
+There are three ways to use it: the **web editor**, the **AI assistant**, and the
+**CLI**. All three sit on the same deterministic engine.
+
+### 1. Web editor
+
+```bash
+pnpm dev      # → http://localhost:3000
+```
+
+- **Color wheel** — drag inside the disk to set hue + chroma; the slider sets
+  OKLCH lightness. The dimmed ring shows colors outside the sRGB gamut.
+- **Harmony** dropdown, **light/dark** toggle, live **role palette + tonal
+  ramps**, and a **UI preview** (buttons, cards, inputs, status chips, links).
+- **Accessibility panel** — APCA Lc + WCAG AA/AAA per pairing, with one-click
+  **Fix → APCA 75** / **Fix → WCAG AA**.
+- **Export** — copy/download tokens as CSS variables, Tailwind config, or JSON.
+
+### 2. AI assistant (the design agent)
+
+The assist panel needs a provider key. Copy the example env and set one provider:
+
+```bash
+cp .env.example .env
+```
+
+```ini
+# .env — pick ONE provider; the key is read server-side and never reaches the browser
+LLM_PROVIDER=anthropic           # or: openai
+ANTHROPIC_API_KEY=sk-ant-...     # or: OPENAI_API_KEY=sk-...
+# optional model overrides:
+# ANTHROPIC_MODEL=claude-opus-4-7
+# OPENAI_MODEL=gpt-4o
+```
+
+Restart `pnpm dev`, then use the **Assistant** panel. It investigates, writes a
+**Design brief** (shown above the palette), and generates/audits/justifies — its
+tool calls drive the same palette the wheel edits. Example prompts:
+
+- “Design a calm fintech palette from our brand blue #2f6df6.”
+- “This CTA doesn't pop — fix it.” · “Audit my dark mode.”
+- “Make it warmer but keep contrast.” · “Give me a triadic version.”
+
+**Switch providers with one variable** — set `LLM_PROVIDER=openai` (with
+`OPENAI_API_KEY`) and restart. Zero code changes.
+
+### 3. CLI (`chroma`)
+
+A composable, scriptable, **agent-friendly** command-line over the engine.
+Deterministic — no keys or network.
+
+```bash
+pnpm build:cli                                   # builds packages/cli/dist/index.js
+node packages/cli/dist/index.js --help           # full command tree
+# or, after install, via the workspace bin:
+pnpm exec chroma --help
+```
+
+```bash
+B="node packages/cli/dist/index.js"
+
+# Generate a light+dark role palette (human-readable, with terminal swatches)
+$B palette generate --base '#3b82f6' --harmony triadic
+
+# Commands read a palette as JSON on stdin, so they pipe together
+$B palette generate --base '#1f9d55' --harmony analogous --json | $B palette audit
+$B palette generate --base '#1f9d55' --harmony analogous --json | $B palette fix
+
+# Alter while preserving roles; analyze a brand color; export tokens
+$B palette adjust  --base '#3b82f6' --harmony triadic --temperature warmer --amount 0.2
+$B color   analyze 'rebeccapurple'
+$B export  --format css      --base '#3b82f6' --harmony triadic   # or: tailwind | json
+```
+
+Every command supports `--json` (machine-readable); `audit`/`fix`/`recolor`/
+`adjust`/`name` and `export` take a palette from stdin, `--file <path>`, or by
+generating from `--base [--harmony]`.
+
+**Using the CLI inside Claude Code:** this repo ships a `CLAUDE.md` pointer and a
+[`.claude/skills/chroma`](.claude/skills/chroma/SKILL.md) skill so Claude Code
+discovers the tool and the research-first methodology automatically. Build it
+once (`pnpm build:cli`) and ask Claude to design or fix a palette.
+
+### 4. As a library
+
+The engine is a standalone, pure package — import it anywhere:
+
+```ts
+import { generatePalette, auditPalette, toCssVariables } from "@chroma/engine";
+
+const palette = generatePalette({ baseColor: "#3b82f6", harmony: "triadic" });
+const report = auditPalette({ palette });
+const css = toCssVariables(palette);
+```
 
 ## Color-science choices
 
@@ -238,5 +344,9 @@ chroma/
 │       ├── system-prompt.ts # methodology + operating rules
 │       ├── agent.ts         # provider-neutral tool loop
 │       └── providers/       # openai.ts · anthropic.ts · factory.ts
-└── apps/web/               # Next.js editor + /api/agent route
+├── packages/cli/           # the `chroma` CLI (noun-verb, --json, pipeable)
+│   └── src/index.ts
+├── apps/web/               # Next.js editor + /api/agent route
+├── CLAUDE.md               # repo guide for Claude Code
+└── .claude/skills/chroma/  # skill: design methodology + CLI usage
 ```
