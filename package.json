@@ -1,0 +1,18 @@
+{
+  "name": "chroma",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chroma — a color-theory design engine with a deterministic OKLCH core and an Adobe Color–style editor.",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "pnpm --filter @chroma/web dev",
+    "build": "pnpm --filter @chroma/web build",
+    "test": "pnpm --filter @chroma/engine test",
+    "test:watch": "pnpm --filter @chroma/engine test:watch",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  }
+}
