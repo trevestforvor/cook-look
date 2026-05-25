@@ -38,7 +38,7 @@ export function PreviewPanel() {
   return (
     <div
       style={{ ...themeVars(theme), background: "var(--bg)", color: "var(--fg)" }}
-      className="rounded-xl border border-neutral-800 p-5"
+      className="rounded-xl border border-line p-5"
     >
       <div className="mx-auto flex max-w-md flex-col gap-4">
         <div>

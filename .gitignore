@@ -8,6 +8,7 @@ dist/
 out/
 *.tsbuildinfo
 next-env.d.ts
+node-compile-cache/
 
 # env
 .env
@@ -23,3 +24,4 @@ pnpm-debug.log*
 .DS_Store
 coverage/
 .vercel
+.gstack/
