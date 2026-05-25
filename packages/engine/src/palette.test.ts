@@ -322,6 +322,37 @@ describe("expanded role set (M3 + Apple HIG, adapted to OKLCH)", () => {
     expect(p.light.roles["primary-container"].oklch.l).toBeGreaterThan(0.8);
     expect(p.dark.roles["primary-container"].oklch.l).toBeLessThan(0.4);
   });
+
+  it("renders every neutral-family role as a distinct color (no collisions)", () => {
+    const neutralRoles: Role[] = [
+      "background",
+      "background-elevated",
+      "surface",
+      "surface-elevated",
+      "outline",
+      "outline-variant",
+      "foreground",
+      "foreground-secondary",
+      "foreground-tertiary",
+    ];
+    for (const base of bases) {
+      const p = generatePalette({ baseColor: base, harmony: "triadic" });
+      for (const theme of [p.light, p.dark]) {
+        const hexes = neutralRoles.map((r) => theme.roles[r].hex);
+        expect(new Set(hexes).size).toBe(neutralRoles.length);
+      }
+    }
+  });
+
+  it("keeps container chroma even across families (capped, not gamut-bound)", () => {
+    const p = generatePalette({ baseColor: "#3b82f6", harmony: "triadic" });
+    for (const theme of [p.light, p.dark]) {
+      const chromas = (["primary", "secondary", "accent"] as const).map(
+        (f) => theme.roles[`${f}-container`].oklch.c,
+      );
+      expect(Math.max(...chromas) - Math.min(...chromas)).toBeLessThan(0.04);
+    }
+  });
 });
 
 describe("neutralChroma option", () => {

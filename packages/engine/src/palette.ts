@@ -9,7 +9,14 @@
  * background in steps.
  */
 import { apcaLc } from "./accessibility.js";
-import { clamp, normalizeHue, parseToOklch } from "./color.js";
+import {
+  clamp,
+  maxChroma,
+  normalizeHue,
+  oklch,
+  parseToOklch,
+  resolveSwatch,
+} from "./color.js";
 import { buildNeutralRamp, buildRamp } from "./ramps.js";
 import { chromaticSeedHues, harmonyKind } from "./harmony.js";
 import type {
@@ -92,31 +99,55 @@ const CONTAINER_ROLES: readonly ContainerRole[] = [
 ];
 
 /**
- * Ramp steps used to derive the expanded role set, per mode. Values are chosen
- * by OKLCH *lightness target* (not by matching M3 tone numbers, whose scale runs
- * opposite to the ramp's step numbering). All on-/text pairings are validated by
- * the APCA auditor; these steps are the perceptual starting points.
- *
- * Container ≈ M3 tone 90 light / tone 30 dark; on-container ≈ tone 10 / tone 90.
- * Outline ≈ tone 50 light / 60 dark; outline-variant ≈ tone 80 / 30.
+ * OKLCH lightness targets for the neutral surface / text / outline system, per
+ * mode, adapted from Material 3's neutral tonal roles (tone/100 ≈ OKLCH L).
+ * Every role is a *distinct* value (no two collide) and elevation is monotonic:
+ * in light mode more-elevated surfaces step slightly darker (toward grey, as M3
+ * does); in dark mode they step lighter. Outlines and the reduced-emphasis
+ * `foreground-secondary` take the neutral-*variant* (higher-chroma) tint.
  */
-const EXTENDED_STEPS = {
-  // Container: a high-lightness step of the family ramp in light, low in dark.
-  container: { light: 200, dark: 900 },
-  // On-container: the contrasting end of the same family ramp.
-  onContainer: { light: 950, dark: 200 },
-  // Neutral surface stack.
-  surfaceElevated: { light: 50, dark: 800 },
-  backgroundElevated: { light: 100, dark: 900 },
-  // Neutral outlines (decorative / non-text). Dark outline is lifted to step
-  // 400 (lighter than tone 60's nominal step) so it clears the APCA non-text
-  // bar (Lc>=45) against the dark background; at step 500/600 it falls short.
-  outline: { light: 600, dark: 400 },
-  outlineVariant: { light: 300, dark: 900 },
-  // Reduced-emphasis foreground tiers (neutral ramp).
-  foregroundSecondary: { light: 700, dark: 300 },
-  foregroundTertiary: { light: 600, dark: 400 },
-} as const satisfies Record<string, Record<ThemeMode, RampStep>>;
+const NEUTRAL_TONES = {
+  background: { light: 0.985, dark: 0.2 },
+  "background-elevated": { light: 0.968, dark: 0.235 },
+  surface: { light: 0.955, dark: 0.27 },
+  "surface-elevated": { light: 0.97, dark: 0.32 },
+  "foreground-tertiary": { light: 0.5, dark: 0.7 },
+  "foreground-secondary": { light: 0.42, dark: 0.82 },
+  foreground: { light: 0.25, dark: 0.92 },
+  outline: { light: 0.52, dark: 0.72 },
+  "outline-variant": { light: 0.8, dark: 0.34 },
+} as const satisfies Partial<Record<Role, Record<ThemeMode, number>>>;
+
+/** Roles taking the higher-chroma neutral-variant tint (M3: outlines + on-surface-variant). */
+const NEUTRAL_VARIANT_ROLES = new Set<string>([
+  "outline",
+  "outline-variant",
+  "foreground-secondary",
+]);
+
+/** Neutral-variant chroma as a multiple of the neutral chroma (M3 ≈ 8 vs 6 HCT). */
+const NEUTRAL_VARIANT_FACTOR = 1.6;
+
+/** Container lightness (≈ M3 tone 90 light / 30 dark) and on-container target (≈ tone 40 / 92). */
+const CONTAINER_TONE = { light: 0.9, dark: 0.32 } as const;
+const ON_CONTAINER_TONE = { light: 0.28, dark: 0.92 } as const;
+/** Cap container chroma so different-hue containers read as one even set (M3 leaves this uneven). */
+const CONTAINER_CHROMA_CAP = { light: 0.05, dark: 0.085 } as const;
+
+/**
+ * Minimum APCA Lc for keeping the *cohesive* colored on-container tone (a deep
+ * tinted family color) rather than falling back to a stark neutral near-black /
+ * near-white. Set to the body bar (75): the on-container tone is dark enough to
+ * clear it for most hues, so containers read as cohesive tinted blocks while
+ * still passing body contrast; rare low-gamut hues fall back to the neutral end.
+ */
+const ON_CONTAINER_MIN_LC = 75;
+
+/** Resolve a gamut-clamped swatch at a target OKLCH lightness + hue, capped to `chroma`. */
+function neutralSwatchAt(l: number, chroma: number, hue: number): Swatch {
+  const c = Math.min(chroma, Math.max(0, maxChroma(l, hue) - 0.0016));
+  return resolveSwatch(oklch(l, c, hue));
+}
 
 /** Pick the neutral-ramp end (near-white or near-black) with the most APCA contrast on `bg`. */
 function pickOnColor(bg: Swatch, neutral: TonalRamp): Swatch {
@@ -128,29 +159,22 @@ function pickOnColor(bg: Swatch, neutral: TonalRamp): Swatch {
 }
 
 /**
- * Pick the on-container text color for a container swatch. Prefers the
- * contrasting end of the family's *own* ramp (the M3 tonal pairing keeps the
- * on-color in-family), but falls back to the neutral ramp's near-white/near-
- * black end if the family ramp can't clear APCA body contrast (e.g. a low-chroma
- * family whose dark/light ends are too close). The auditor reports the realized
- * contrast either way.
+ * On-container text color, adapted from Material 3 (on-container ≈ tone 30 light
+ * / 90 dark — a saturated family color, not near-black, so containers read as
+ * cohesive tinted blocks). Resolves the family hue at the on-container tone; if
+ * that can't clear APCA body contrast, falls back to the strongest of the
+ * neutral near-white / near-black ends. The auditor reports realized contrast.
  */
 function pickOnContainer(
   container: Swatch,
-  family: TonalRamp,
+  familyHue: number,
+  familyChroma: number,
   neutral: TonalRamp,
-  preferStep: RampStep,
+  onTone: number,
 ): Swatch {
-  const inFamily = family.steps[preferStep];
-  if (Math.abs(apcaLc(inFamily, container)) >= 75) return inFamily;
-  // Best of the family's two ends, then the neutral ends — keep the strongest.
-  const candidates: Swatch[] = [
-    inFamily,
-    family.steps[950],
-    family.steps[50],
-    neutral.steps[950],
-    neutral.steps[50],
-  ];
+  const inFamily = neutralSwatchAt(onTone, familyChroma, familyHue);
+  if (Math.abs(apcaLc(inFamily, container)) >= ON_CONTAINER_MIN_LC) return inFamily;
+  const candidates: Swatch[] = [inFamily, neutral.steps[950], neutral.steps[50]];
   return candidates.reduce((best, c) =>
     Math.abs(apcaLc(c, container)) > Math.abs(apcaLc(best, container)) ? c : best,
   );
@@ -171,13 +195,9 @@ export function buildTheme(seeds: PaletteSeeds, mode: ThemeMode): ThemePalette {
   }
 
   const neutral = ramps.neutral;
-
-  // Background / surface / foreground selected from the neutral ramp per mode.
-  const background =
-    mode === "light" ? neutral.steps[50] : neutral.steps[950];
-  const surface = mode === "light" ? neutral.steps[100] : neutral.steps[900];
-  const foreground =
-    mode === "light" ? neutral.steps[900] : neutral.steps[100];
+  const nHue = seeds.hues.neutral;
+  const nChroma = seeds.chroma.neutral;
+  const nvChroma = nChroma * NEUTRAL_VARIANT_FACTOR;
 
   const roles = {} as Record<Role, Swatch>;
   for (const role of RAMP_ROLES) {
@@ -186,23 +206,24 @@ export function buildTheme(seeds: PaletteSeeds, mode: ThemeMode): ThemePalette {
     const step = seeds.mainSteps?.[role]?.[mode] ?? mainStep;
     roles[role] = ramps[role].steps[step];
   }
-  roles.background = background;
-  roles.surface = surface;
-  roles.foreground = foreground;
 
-  // Expanded role set (M3 + Apple HIG, adapted). All derived from existing ramp
-  // steps; text pairings are validated by the APCA auditor downstream.
-  for (const family of CONTAINER_ROLES) {
-    roles[`${family}-container`] = ramps[family].steps[EXTENDED_STEPS.container[mode]];
+  // Neutral surface / text / outline system: each role resolved at a dedicated,
+  // distinct lightness target (Material-3 neutral roles), so no two collide.
+  // Outlines + foreground-secondary use the higher-chroma neutral-variant tint.
+  for (const role of Object.keys(NEUTRAL_TONES) as (keyof typeof NEUTRAL_TONES)[]) {
+    const c = NEUTRAL_VARIANT_ROLES.has(role) ? nvChroma : nChroma;
+    roles[role] = neutralSwatchAt(NEUTRAL_TONES[role][mode], c, nHue);
   }
-  roles["surface-elevated"] = neutral.steps[EXTENDED_STEPS.surfaceElevated[mode]];
-  roles["background-elevated"] = neutral.steps[EXTENDED_STEPS.backgroundElevated[mode]];
-  roles.outline = neutral.steps[EXTENDED_STEPS.outline[mode]];
-  roles["outline-variant"] = neutral.steps[EXTENDED_STEPS.outlineVariant[mode]];
-  roles["foreground-secondary"] =
-    neutral.steps[EXTENDED_STEPS.foregroundSecondary[mode]];
-  roles["foreground-tertiary"] =
-    neutral.steps[EXTENDED_STEPS.foregroundTertiary[mode]];
+
+  // Brand containers: a pale (light) / deep (dark) tint of the family at a fixed
+  // tone, with chroma capped so different-hue containers read as one even set.
+  for (const family of CONTAINER_ROLES) {
+    roles[`${family}-container`] = neutralSwatchAt(
+      CONTAINER_TONE[mode],
+      Math.min(seeds.chroma[family], CONTAINER_CHROMA_CAP[mode]),
+      seeds.hues[family],
+    );
+  }
 
   const on = {} as Record<OnRole, Swatch>;
   for (const role of ON_ROLES) {
@@ -210,9 +231,10 @@ export function buildTheme(seeds: PaletteSeeds, mode: ThemeMode): ThemePalette {
       const family = role.slice(0, -"-container".length) as ContainerRole;
       on[role] = pickOnContainer(
         roles[role],
-        ramps[family],
+        seeds.hues[family],
+        seeds.chroma[family],
         neutral,
-        EXTENDED_STEPS.onContainer[mode],
+        ON_CONTAINER_TONE[mode],
       );
     } else {
       on[role] = pickOnColor(roles[role], neutral);
