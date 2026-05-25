@@ -223,6 +223,12 @@ export interface GeneratePaletteOptions {
    * accent. Ignored for every harmony except `custom`.
    */
   customAngles?: number[];
+  /**
+   * Lift the brand-family chroma ceiling so highly saturated base colors aren't
+   * clamped to the usual ~0.32 sRGB band. Derived swatches still gamut-map for
+   * display; this preserves the intent for wide-gamut output. Default false.
+   */
+  unrestrictedChroma?: boolean;
 }
 
 /** Structured, perceptual adjustment intent for {@link adjustColor}. */

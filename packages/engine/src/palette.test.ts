@@ -188,6 +188,27 @@ describe("generatePalette", () => {
     ).toThrow(/at least one angle/);
   });
 
+  describe("unrestrictedChroma option", () => {
+    it("preserves high chroma (0.45) when unrestrictedChroma is true", () => {
+      const p = generatePalette({
+        baseColor: "#3b82f6",
+        harmony: "complementary",
+        options: { primaryChroma: 0.45, unrestrictedChroma: true },
+      });
+      expect(p.seeds.chroma.primary).toBeGreaterThan(0.32);
+      expect(p.seeds.chroma.primary).toBeCloseTo(0.45, 2);
+    });
+
+    it("clamps high chroma (0.45) to 0.32 when unrestrictedChroma is false (default)", () => {
+      const p = generatePalette({
+        baseColor: "#3b82f6",
+        harmony: "complementary",
+        options: { primaryChroma: 0.45 },
+      });
+      expect(p.seeds.chroma.primary).toBeCloseTo(0.32, 5);
+    });
+  });
+
   it("double-split-complementary seeds primary/secondary/accent at base, +30, +150", () => {
     const c = generatePalette({
       baseColor: "#3b82f6",

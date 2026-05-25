@@ -23,6 +23,10 @@ import type {
 } from "@chroma/agent";
 import { DEFAULT_VISIBLE_ROLES } from "./roles";
 
+/** Chroma at the color-wheel rim: the sRGB-safe cap, and the lifted (unrestricted) cap. */
+export const SRGB_MAX_C = 0.37;
+export const UNRESTRICTED_MAX_C = 0.5;
+
 /**
  * A user-defined color in the brand family. It tracks the brand base hue via a
  * stored offset (so it rotates along with the rest of the palette), keeping the
@@ -81,6 +85,8 @@ export interface ChromaState {
   roleOverrides: RoleOverrides;
   /** User-added colors outside the generated role set. */
   customSwatches: CustomSwatch[];
+  /** When true, the brand-family chroma ceiling is lifted to 0.5 (unrestricted gamut). */
+  unrestrictedChroma: boolean;
 
   lockRole: (role: Role) => void;
   unlockRole: (role: Role) => void;
@@ -91,6 +97,7 @@ export interface ChromaState {
   removeCustomSwatch: (id: string) => void;
   toggleCustomLock: (id: string) => void;
 
+  setUnrestrictedChroma: (v: boolean) => void;
   setBase: (base: Oklch) => void;
   /**
    * Update only the base color (and the wheel marker), WITHOUT regenerating the
@@ -163,11 +170,12 @@ function build(
   harmony: HarmonyType,
   span: number,
   overrides: RoleOverrides,
+  unrestrictedChroma?: boolean,
 ): Palette {
   const palette = generatePalette({
     baseColor: base,
     harmony,
-    options: { analogousSpan: span },
+    options: { analogousSpan: span, unrestrictedChroma },
   });
   return applyOverrides(palette, overrides);
 }
@@ -182,11 +190,19 @@ export const useChroma = create<ChromaState>((set, get) => ({
   visibleRoles: [...DEFAULT_VISIBLE_ROLES],
   roleOverrides: {},
   customSwatches: [],
+  unrestrictedChroma: false,
+
+  setUnrestrictedChroma: (v) =>
+    set((s) => ({
+      unrestrictedChroma: v,
+      palette: build(s.base, s.harmony, s.analogousSpan, s.roleOverrides, v),
+      lastFix: null,
+    })),
 
   setBase: (base) =>
     set((s) => ({
       base,
-      palette: build(base, s.harmony, s.analogousSpan, s.roleOverrides),
+      palette: build(base, s.harmony, s.analogousSpan, s.roleOverrides, s.unrestrictedChroma),
       lastFix: null,
     })),
 
@@ -198,7 +214,7 @@ export const useChroma = create<ChromaState>((set, get) => ({
     if (!parsed) return false;
     set((s) => ({
       base: parsed,
-      palette: build(parsed, s.harmony, s.analogousSpan, s.roleOverrides),
+      palette: build(parsed, s.harmony, s.analogousSpan, s.roleOverrides, s.unrestrictedChroma),
       lastFix: null,
     }));
     return true;
@@ -207,14 +223,14 @@ export const useChroma = create<ChromaState>((set, get) => ({
   setHarmony: (harmony) =>
     set((s) => ({
       harmony,
-      palette: build(s.base, harmony, s.analogousSpan, s.roleOverrides),
+      palette: build(s.base, harmony, s.analogousSpan, s.roleOverrides, s.unrestrictedChroma),
       lastFix: null,
     })),
 
   setSpan: (span) =>
     set((s) => ({
       analogousSpan: span,
-      palette: build(s.base, s.harmony, span, s.roleOverrides),
+      palette: build(s.base, s.harmony, span, s.roleOverrides, s.unrestrictedChroma),
       lastFix: null,
     })),
 

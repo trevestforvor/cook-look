@@ -113,6 +113,7 @@ interface CliValues {
   chroma?: string;
   "neutral-chroma"?: string;
   "semantic-harmony"?: string;
+  "unrestricted-chroma"?: boolean;
   model?: string;
   use?: string;
   level?: string;
@@ -205,6 +206,7 @@ function generateFromFlags(values: CliValues): Palette {
       neutralChroma,
       semanticHarmony,
       customAngles: angles,
+      unrestrictedChroma: values["unrestricted-chroma"],
     },
   });
 }
@@ -516,11 +518,12 @@ COMMANDS
       --analogous-span <deg>  span for analogous harmony (default 30)
       --angles <list>         hue offsets in degrees for --harmony custom,
                                 e.g. --angles '0,40,180,210' (relative to base hue)
-      --chroma <0..0.37>      override the primary chroma
+      --chroma <0..0.5>       override the primary chroma
       --neutral-chroma <0..0.1>  chroma tint applied to the neutral ramp
                                 (0 = pure gray; default scales with primary chroma)
       --semantic-harmony <0..60>  max degrees success/warning/danger shift toward
                                 the brand's warm/cool temperature (0 = fixed; default 15)
+      --unrestricted-chroma   allow base/brand chroma beyond the ~0.37 sRGB cap (default off)
       --json                  emit the full Palette as JSON (for piping)
 
   palette audit      Full APCA + WCAG + harmony + gamut report.
@@ -570,6 +573,7 @@ async function main(): Promise<void> {
       chroma: { type: "string" },
       "neutral-chroma": { type: "string" },
       "semantic-harmony": { type: "string" },
+      "unrestricted-chroma": { type: "boolean" },
       model: { type: "string" },
       use: { type: "string" },
       level: { type: "string" },

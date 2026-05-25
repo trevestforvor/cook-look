@@ -234,6 +234,10 @@ const generatePaletteTool: AgentTool = {
           type: "number",
           description: "Span in degrees when harmony is 'analogous'.",
         },
+        unrestrictedChroma: {
+          type: "boolean",
+          description: "Allow brand chroma beyond the ~0.37 sRGB cap (rarely needed; default false).",
+        },
       },
       required: ["baseHue", "harmony"],
     },
@@ -249,6 +253,7 @@ const generatePaletteTool: AgentTool = {
       options: {
         primaryChroma: chroma,
         analogousSpan: input.analogousSpan,
+        unrestrictedChroma: input.unrestrictedChroma,
       },
     });
     return {

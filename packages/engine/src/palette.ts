@@ -264,12 +264,15 @@ export function buildSeeds(
   // ramp itself supplies the lightness/value variation per family.
   const isShades = harmony === "shades";
 
+  const cMax = options.unrestrictedChroma ? 0.5 : 0.32;
+  const cMaxAccent = options.unrestrictedChroma ? 0.5 : 0.34;
+
   const chroma: Record<RampRole, number> = {
-    primary: clamp(pChroma, 0.04, 0.32),
+    primary: clamp(pChroma, 0.04, cMax),
     // Monochromatic differentiates families by chroma, not hue. Shades keeps
     // chroma flat (same color, different value); all others vary hue.
-    secondary: clamp(pChroma * (isMono ? 0.5 : isShades ? 1 : 0.92), 0.02, 0.32),
-    accent: clamp(pChroma * (isMono ? 0.8 : isShades ? 1 : 1), 0.04, 0.34),
+    secondary: clamp(pChroma * (isMono ? 0.5 : isShades ? 1 : 0.92), 0.02, cMax),
+    accent: clamp(pChroma * (isMono ? 0.8 : isShades ? 1 : 1), 0.04, cMaxAccent),
     neutral:
       options.neutralChroma ??
       clamp(pChroma * NEUTRAL_TINT_FRACTION, NEUTRAL_TINT_MIN, NEUTRAL_TINT_MAX),
