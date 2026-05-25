@@ -283,7 +283,7 @@ function CustomCard({ id, index }: { id: string; index: number }) {
       <div>
         <div className="font-mono text-[11px] opacity-90">{swatch.hex}</div>
         <div className="truncate text-[10px] opacity-75">
-          {swatchData.slot !== undefined ? "harmony" : "custom"}
+          {swatchData.autoIndex !== undefined ? "harmony" : "custom"}
         </div>
       </div>
     </div>

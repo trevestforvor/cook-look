@@ -39,7 +39,8 @@ export function AddColorMenu() {
   const addBrand = () => {
     if (atCap) return;
     addBrandColor();
-    setOpen(false);
+    // Keep the popover open so several can be added quickly; the button
+    // disables itself at the cap.
   };
 
   return (

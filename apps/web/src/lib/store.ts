@@ -39,14 +39,16 @@ export interface CustomSwatch {
   name: string;
   l: number;
   c: number;
-  /** Hue offset (deg) from the brand base hue. */
+  /** Hue offset (deg) from the base; used by manual swatches and as a fallback. */
   hueOffset: number;
   /**
-   * Harmony offset index (≥3) this swatch occupies. When set, the swatch
-   * auto-fills an unused harmony hue slot and re-positions as the harmony
-   * changes. Absent means a manual/free color (uses `hueOffset` directly).
+   * Auto-distribution index among the harmony-tracking extra brand colors. When
+   * set, the hue is derived from the harmony via {@link autoHarmonyOffset}, so
+   * the extras arrange themselves around the harmony's hue anchors and
+   * re-arrange when the harmony changes. Absent = a manual/hand-picked color
+   * (uses `hueOffset` directly).
    */
-  slot?: number;
+  autoIndex?: number;
   locked: boolean;
   /** Absolute hue used while locked (tracking is suspended). */
   lockedHue?: number;
@@ -55,17 +57,46 @@ export interface CustomSwatch {
 /** Maximum number of extra brand colors (7 total incl. primary/secondary/accent). */
 export const MAX_CUSTOM_SWATCHES = 4;
 
+/** Degrees to flank a harmony anchor when distributing extra brand colors around it. */
+const FLANK_STEP = 16;
+
 /** Signed hue offset of `hue` from `baseHue`, in [-180, 180]. */
 function hueOffsetFrom(baseHue: number, hue: number): number {
   return normalizeHue(hue - baseHue + 180) - 180;
 }
 
 /**
+ * Hue offset (deg from base) for the `index`-th auto-distributed extra brand
+ * color, given the harmony. The harmony's own surplus hues (offset indices ≥3,
+ * e.g. tetradic's 4th) are placed first; beyond those, colors flank the
+ * non-primary anchors (complement / secondary / accent …) symmetrically in
+ * growing ± steps, so N extras arrange in and around the harmony — e.g. on
+ * complementary they cluster two-per-side of the complement. The same way
+ * online palette generators expand a scheme to more colors.
+ */
+export function autoHarmonyOffset(
+  harmony: HarmonyType,
+  analogousSpan: number,
+  index: number,
+): number {
+  const anchors = harmonyOffsets(harmony, { analogousSpan });
+  const surplus = anchors.slice(3);
+  if (index < surplus.length) return surplus[index]!;
+  const k = index - surplus.length;
+  // Flank the non-primary anchors (single-hue harmonies flank the base itself).
+  const targets = anchors.length > 1 ? anchors.slice(1) : anchors;
+  const perRing = Math.max(2, targets.length * 2);
+  const ring = Math.floor(k / perRing) + 1;
+  const within = k % perRing;
+  const anchor = targets[Math.floor(within / 2)] ?? 0;
+  const sign = within % 2 === 0 ? 1 : -1;
+  return anchor + sign * ring * FLANK_STEP;
+}
+
+/**
  * Effective OKLCH of a custom swatch at the current base hue.
  * - locked → frozen at `lockedHue`.
- * - slot swatch → tracks the harmony's offset at `slot` (auto-repositions when
- *   the harmony/base change), falling back to `hueOffset` if the current
- *   harmony has no such slot.
+ * - auto swatch → distributed around the harmony (re-arranges when harmony/base change).
  * - manual → tracks `base.h + hueOffset`.
  */
 export function customSwatchColor(
@@ -77,33 +108,12 @@ export function customSwatchColor(
   let h: number;
   if (sw.locked && sw.lockedHue !== undefined) {
     h = sw.lockedHue;
-  } else if (sw.slot !== undefined) {
-    const offs = harmonyOffsets(harmony, { analogousSpan });
-    const off = offs[sw.slot] ?? sw.hueOffset;
-    h = normalizeHue(base.h + off);
+  } else if (sw.autoIndex !== undefined) {
+    h = normalizeHue(base.h + autoHarmonyOffset(harmony, analogousSpan, sw.autoIndex));
   } else {
     h = normalizeHue(base.h + sw.hueOffset);
   }
   return { l: sw.l, c: sw.c, h };
-}
-
-/**
- * Lowest harmony slot index ≥3 present in the current harmony that no existing
- * swatch already occupies, or `undefined` if the harmony exposes none free.
- */
-export function nextOpenSlot(
-  harmony: HarmonyType,
-  analogousSpan: number,
-  existing: CustomSwatch[],
-): number | undefined {
-  const offs = harmonyOffsets(harmony, { analogousSpan });
-  const used = new Set(
-    existing.map((s) => s.slot).filter((s): s is number => s !== undefined),
-  );
-  for (let i = 3; i < offs.length; i++) {
-    if (!used.has(i)) return i;
-  }
-  return undefined;
 }
 
 /** Frozen per-mode OKLCH for a locked role, re-applied after every rebuild. */
@@ -335,7 +345,7 @@ export const useChroma = create<ChromaState>((set, get) => ({
             l: color.l,
             c: color.c,
             hueOffset: hueOffsetFrom(s.palette.baseColor.h, color.h),
-            slot: undefined,
+            autoIndex: undefined,
             locked: false,
           },
         ],
@@ -345,36 +355,19 @@ export const useChroma = create<ChromaState>((set, get) => ({
   addBrandColor: () =>
     set((s) => {
       if (s.customSwatches.length >= MAX_CUSTOM_SWATCHES) return {};
-      const { harmony, analogousSpan, customSwatches } = s;
+      // Stable index among the auto swatches; the distribution arranges the
+      // extras around the harmony's anchors (and re-arranges on harmony change).
+      const autoIndex = s.customSwatches.filter(
+        (c) => c.autoIndex !== undefined,
+      ).length;
       const p = s.palette.light.roles.primary.oklch;
-      const l = p.l;
-      const c = p.c;
       const id = `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-      const name = `Custom ${customSwatches.length + 1}`;
-      const slot = nextOpenSlot(harmony, analogousSpan, customSwatches);
-
-      if (slot !== undefined) {
-        const offs = harmonyOffsets(harmony, { analogousSpan });
-        return {
-          customSwatches: [
-            ...customSwatches,
-            { id, name, l, c, hueOffset: offs[slot] ?? 180, slot, locked: false },
-          ],
-        };
-      }
-
-      // No open harmony slot: place a manual color, spread across the wheel so
-      // it doesn't collide with another custom near the same offset.
-      const usedOffsets = customSwatches
-        .filter((sw) => sw.slot === undefined)
-        .map((sw) => normalizeHue(sw.hueOffset));
-      const near = (target: number) =>
-        usedOffsets.some((o) => Math.abs(o - target) < 20);
-      const hueOffset = !near(180) ? 180 : !near(90) ? 90 : 270;
+      const name = `Custom ${s.customSwatches.length + 1}`;
+      const hueOffset = autoHarmonyOffset(s.harmony, s.analogousSpan, autoIndex);
       return {
         customSwatches: [
-          ...customSwatches,
-          { id, name, l, c, hueOffset, slot: undefined, locked: false },
+          ...s.customSwatches,
+          { id, name, l: p.l, c: p.c, hueOffset, autoIndex, locked: false },
         ],
       };
     }),
@@ -391,7 +384,7 @@ export const useChroma = create<ChromaState>((set, get) => ({
           next.l = patch.color.l;
           next.c = patch.color.c;
           next.hueOffset = hueOffsetFrom(s.palette.baseColor.h, patch.color.h);
-          next.slot = undefined;
+          next.autoIndex = undefined;
           if (next.locked) next.lockedHue = patch.color.h;
         }
         return next;
@@ -416,9 +409,9 @@ export const useChroma = create<ChromaState>((set, get) => ({
           ).h;
           return { ...c, locked: true, lockedHue };
         }
-        // Unlock: a manual swatch recomputes its offset from the frozen hue; a
-        // slot swatch keeps its slot and resumes tracking the harmony.
-        if (c.slot !== undefined) {
+        // Unlock: a manual swatch recomputes its offset from the frozen hue; an
+        // auto swatch keeps its index and resumes tracking the harmony.
+        if (c.autoIndex !== undefined) {
           return { ...c, locked: false, lockedHue: undefined };
         }
         const hueOffset =
