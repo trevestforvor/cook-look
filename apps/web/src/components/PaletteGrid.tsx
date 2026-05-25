@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import {
+  apcaLc,
   nameColors,
   RAMP_STEPS,
   resolveSwatch,
@@ -33,9 +34,20 @@ function isOnRole(role: Role): role is OnRole {
   return (ON_ROLES as readonly string[]).includes(role);
 }
 
-/** Text color to render on top of a role's swatch. */
+/**
+ * Text color to render on top of a role's swatch. OnRoles use the engine's
+ * APCA-validated on-color; other roles (foreground tiers, outlines, neutral,
+ * elevated surfaces) have none, so pick whichever of foreground/background
+ * reads more legibly on the swatch — otherwise a dark role like `foreground`
+ * would draw dark-on-dark and the label would vanish.
+ */
 function onColorFor(theme: ThemePalette, role: Role): Swatch {
-  return isOnRole(role) ? theme.on[role] : theme.roles.foreground;
+  if (isOnRole(role)) return theme.on[role];
+  const swatch = theme.roles[role];
+  const { foreground, background } = theme.roles;
+  return Math.abs(apcaLc(foreground, swatch)) >= Math.abs(apcaLc(background, swatch))
+    ? foreground
+    : background;
 }
 
 /** Stable key derived from the committed palette's baseColor + harmony + mode.
