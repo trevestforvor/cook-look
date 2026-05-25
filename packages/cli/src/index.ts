@@ -112,6 +112,7 @@ interface CliValues {
   angles?: string;
   chroma?: string;
   "neutral-chroma"?: string;
+  "semantic-harmony"?: string;
   model?: string;
   use?: string;
   level?: string;
@@ -186,6 +187,15 @@ function generateFromFlags(values: CliValues): Palette {
       `--neutral-chroma must be in the range 0..0.1, got ${neutralChroma}.`,
     );
   }
+  const semanticHarmony = num(values["semantic-harmony"], "semantic-harmony");
+  if (
+    semanticHarmony !== undefined &&
+    (semanticHarmony < 0 || semanticHarmony > 60)
+  ) {
+    throw new CliError(
+      `--semantic-harmony must be in the range 0..60, got ${semanticHarmony}.`,
+    );
+  }
   return generatePalette({
     baseColor: base,
     harmony,
@@ -193,6 +203,7 @@ function generateFromFlags(values: CliValues): Palette {
       analogousSpan: num(values["analogous-span"], "analogous-span"),
       primaryChroma: num(values.chroma, "chroma"),
       neutralChroma,
+      semanticHarmony,
       customAngles: angles,
     },
   });
@@ -507,7 +518,9 @@ COMMANDS
                                 e.g. --angles '0,40,180,210' (relative to base hue)
       --chroma <0..0.37>      override the primary chroma
       --neutral-chroma <0..0.1>  chroma tint applied to the neutral ramp
-                                (0 = pure gray; default ~ min(0.012, primary*0.06))
+                                (0 = pure gray; default scales with primary chroma)
+      --semantic-harmony <0..60>  max degrees success/warning/danger shift toward
+                                the brand's warm/cool temperature (0 = fixed; default 15)
       --json                  emit the full Palette as JSON (for piping)
 
   palette audit      Full APCA + WCAG + harmony + gamut report.
@@ -556,6 +569,7 @@ async function main(): Promise<void> {
       angles: { type: "string" },
       chroma: { type: "string" },
       "neutral-chroma": { type: "string" },
+      "semantic-harmony": { type: "string" },
       model: { type: "string" },
       use: { type: "string" },
       level: { type: "string" },

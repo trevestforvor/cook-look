@@ -28,8 +28,34 @@ import type {
   TonalRamp,
 } from "./types.js";
 
-/** Conventional OKLCH hues for semantic status roles. */
+/** Conventional OKLCH hues for semantic status roles (pre-harmonization). */
 const SEMANTIC_HUES = { success: 150, warning: 70, danger: 27 } as const;
+
+/**
+ * Default cap (degrees) on how far semantic roles shift toward the brand's
+ * temperature when the brand is fully warm or cool. 15° keeps red/amber/green
+ * unmistakable while letting a warm brand pull them warmer (and cool cooler).
+ */
+export const DEFAULT_SEMANTIC_HARMONY = 15;
+
+/**
+ * Warm / cool poles on the OKLCH hue wheel (degrees). Warmth is modeled as a
+ * cosine peaking at the warm pole, so orange/yellow read fully warm, blue fully
+ * cool, and green/magenta temperature-neutral. Matches the warm/cool anchors
+ * used by {@link AdjustIntent}.
+ */
+const WARM_ANCHOR = 60;
+const COOL_ANCHOR = 240;
+
+/**
+ * Neutral tint: the neutral ramp carries the brand hue at a small chroma so
+ * surfaces/backgrounds read warm or cool with the palette instead of dead gray.
+ * Chroma scales with the brand's chroma, clamped to a perceptible-but-not-muddy
+ * band. The light end is further limited by the gamut ceiling at each step.
+ */
+const NEUTRAL_TINT_FRACTION = 0.14;
+const NEUTRAL_TINT_MIN = 0.006;
+const NEUTRAL_TINT_MAX = 0.02;
 
 /** The ramp step used as a role's "main" swatch, per mode. */
 const MAIN_STEP = { light: 500, dark: 400 } as const;
@@ -221,20 +247,30 @@ export function buildSeeds(
     // chroma flat (same color, different value); all others vary hue.
     secondary: clamp(pChroma * (isMono ? 0.5 : isShades ? 1 : 0.92), 0.02, 0.32),
     accent: clamp(pChroma * (isMono ? 0.8 : isShades ? 1 : 1), 0.04, 0.34),
-    neutral: options.neutralChroma ?? Math.min(0.012, pChroma * 0.06),
+    neutral:
+      options.neutralChroma ??
+      clamp(pChroma * NEUTRAL_TINT_FRACTION, NEUTRAL_TINT_MIN, NEUTRAL_TINT_MAX),
     success: 0.15,
     warning: 0.15,
     danger: 0.16,
   };
+
+  // Shift semantic hues toward the brand's temperature: a warm brand pulls
+  // success/warning/danger warmer, a cool brand cooler, scaled by how warm or
+  // cool the brand actually is. Magnitude is capped so they stay recognizable.
+  const maxSemanticRotation = options.semanticHarmony ?? DEFAULT_SEMANTIC_HARMONY;
+  const temperature = brandTemperature(seedHues.primary);
+  const harmonize = (hue: number) =>
+    temperatureShift(hue, temperature, maxSemanticRotation);
 
   const hues: Record<RampRole, number> = {
     primary: seedHues.primary,
     secondary: seedHues.secondary,
     accent: seedHues.accent,
     neutral: seedHues.primary,
-    success: SEMANTIC_HUES.success,
-    warning: SEMANTIC_HUES.warning,
-    danger: SEMANTIC_HUES.danger,
+    success: harmonize(SEMANTIC_HUES.success),
+    warning: harmonize(SEMANTIC_HUES.warning),
+    danger: harmonize(SEMANTIC_HUES.danger),
   };
 
   // Shades shares one hue+chroma across families, so distinguish them by
@@ -271,6 +307,28 @@ function signedHueOffset(baseHue: number, hue: number): number {
   const off = normalizeHue(hue - baseHue + 180) - 180;
   // normalizeHue maps an exact 180° offset to −180; prefer +180.
   return off <= -180 ? 180 : off;
+}
+
+/**
+ * Brand temperature in [−1, 1]: +1 when the hue sits on the warm pole
+ * ({@link WARM_ANCHOR}), −1 on the cool pole, 0 at the neutral green/magenta
+ * axis. A smooth cosine so brands between poles get a proportional pull.
+ */
+function brandTemperature(hue: number): number {
+  return Math.cos(((hue - WARM_ANCHOR) * Math.PI) / 180);
+}
+
+/**
+ * Shift `hue` toward the warm or cool pole per the brand `temperature`, by up
+ * to `maxRotation` degrees at full warmth/coolness (scaled by |temperature|).
+ * Never overshoots the pole, so the hue moves warmer/cooler but stays itself.
+ */
+function temperatureShift(hue: number, temperature: number, maxRotation: number): number {
+  if (maxRotation <= 0 || temperature === 0) return normalizeHue(hue);
+  const anchor = temperature > 0 ? WARM_ANCHOR : COOL_ANCHOR;
+  const toAnchor = signedHueOffset(hue, anchor); // shortest signed arc to pole
+  const magnitude = Math.min(Math.abs(temperature) * maxRotation, Math.abs(toAnchor));
+  return normalizeHue(hue + Math.sign(toAnchor) * magnitude);
 }
 
 /**

@@ -211,6 +211,13 @@ export interface GeneratePaletteOptions {
   /** Chroma multiplier for neutral tinting (default 0.02 of primary). */
   neutralChroma?: number;
   /**
+   * Maximum degrees the semantic roles (success/warning/danger) shift toward
+   * the brand's warm/cool temperature so they feel part of the palette (applied
+   * at full warmth/coolness; scaled down for milder brands). `0` disables the
+   * shift (fixed conventional hues). Default {@link DEFAULT_SEMANTIC_HARMONY}.
+   */
+  semanticHarmony?: number;
+  /**
    * Hue offsets (degrees from the base) for the `custom` harmony. Index 0 is
    * treated as the base; the first three entries map to primary/secondary/
    * accent. Ignored for every harmony except `custom`.

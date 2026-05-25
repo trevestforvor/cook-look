@@ -35,9 +35,22 @@ describe("recolor", () => {
     );
   });
 
-  it("keeps conventional semantic hues", () => {
+  it("shifts semantic hues toward the brand temperature, bounded and recognizable", () => {
     const recolored = recolor({ palette: original, newBase: "#e11d48" });
-    expect(recolored.seeds.hues.success).toBe(150);
-    expect(recolored.seeds.hues.danger).toBe(27);
+    // A warm crimson brand pulls semantics warmer, but bounded by
+    // DEFAULT_SEMANTIC_HARMONY (15°) so success stays green and danger red.
+    expect(Math.abs(recolored.seeds.hues.success - 150)).toBeLessThanOrEqual(15);
+    expect(recolored.seeds.hues.success).toBeGreaterThan(120); // still green
+    expect(Math.abs(recolored.seeds.hues.danger - 27)).toBeLessThanOrEqual(15);
+  });
+
+  it("semanticHarmony: 0 keeps semantic hues exactly conventional", () => {
+    const fixed = generatePalette({
+      baseColor: "#e11d48",
+      harmony: "complementary",
+      options: { semanticHarmony: 0 },
+    });
+    expect(fixed.seeds.hues.success).toBe(150);
+    expect(fixed.seeds.hues.danger).toBe(27);
   });
 });
