@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { HarmonyType } from "@chroma/engine";
+import { resolveSwatch, type HarmonyType } from "@chroma/engine";
 import { useChroma, SRGB_MAX_C, UNRESTRICTED_MAX_C } from "@/lib/store";
 import { useRafThrottle } from "@/lib/use-raf-throttle";
 import { Dropdown } from "@/components/Dropdown";
@@ -43,16 +43,19 @@ export function Controls() {
   const pendingSpan = useRef(span);
 
   const baseHex = useChroma((s) => s.palette.baseColor);
-  const baseSwatchHex = useChroma((s) => s.palette.light.roles.primary.hex);
+  // The field shows the actual BASE color you set (round-trips your input), not
+  // the derived primary role swatch (which is a fixed mid-tone ramp step and
+  // would otherwise "rewrite" your hex to a different lightness/chroma).
+  const baseColorHex = resolveSwatch(baseHex).hex;
 
   const [hexInput, setHexInput] = useState("");
   const [invalid, setInvalid] = useState(false);
 
-  // Keep the text field in sync with the wheel-derived base color.
+  // Keep the text field in sync with the committed base color.
   useEffect(() => {
-    setHexInput(baseSwatchHex);
+    setHexInput(baseColorHex);
     setInvalid(false);
-  }, [baseSwatchHex]);
+  }, [baseColorHex]);
 
   const commitHex = () => {
     const ok = setBaseFromString(hexInput);
@@ -66,7 +69,7 @@ export function Controls() {
           <input
             aria-label="Base color picker"
             type="color"
-            value={baseSwatchHex}
+            value={baseColorHex}
             onChange={(e) => setBaseFromString(e.target.value)}
             className="h-9 w-10 cursor-pointer rounded border border-line bg-transparent"
           />
