@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { parseToOklch } from "@chroma/engine";
-import { useChroma } from "@/lib/store";
+import { useChroma, MAX_CUSTOM_SWATCHES } from "@/lib/store";
 import { ALL_ROLES } from "@/lib/roles";
 
 export function AddColorMenu() {
@@ -15,10 +15,15 @@ export function AddColorMenu() {
   const visibleRoles = useChroma((s) => s.visibleRoles);
   const showRole = useChroma((s) => s.showRole);
   const addCustomSwatch = useChroma((s) => s.addCustomSwatch);
+  const addBrandColor = useChroma((s) => s.addBrandColor);
+  const customCount = useChroma((s) => s.customSwatches.length);
 
   const hidden = ALL_ROLES.filter((r) => !visibleRoles.includes(r));
+  const atCap = customCount >= MAX_CUSTOM_SWATCHES;
+  const capHint = `Max ${MAX_CUSTOM_SWATCHES} extra brand colors`;
 
   const submitCustom = () => {
+    if (atCap) return;
     const parsed = parseToOklch(colorInput.trim());
     if (!parsed) {
       setError("Enter a valid color (hex, rgb(), or oklch()).");
@@ -28,6 +33,12 @@ export function AddColorMenu() {
     setName("");
     setColorInput("#6b21a8");
     setError(null);
+    setOpen(false);
+  };
+
+  const addBrand = () => {
+    if (atCap) return;
+    addBrandColor();
     setOpen(false);
   };
 
@@ -43,6 +54,20 @@ export function AddColorMenu() {
 
       {open && (
         <div className="absolute right-0 z-20 mt-1 w-72 rounded-lg border border-line bg-surface-0 p-3 shadow-lg">
+          <div className="mb-3">
+            <button
+              onClick={addBrand}
+              disabled={atCap}
+              title={atCap ? capHint : "Auto-fill an open harmony slot (or a spaced default)"}
+              className="btn-press w-full rounded-md bg-accent px-2.5 py-1.5 text-xs font-medium text-bg transition disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              + Add brand color
+            </button>
+            {atCap && (
+              <div className="mt-1 text-[11px] text-ink-low">{capHint}</div>
+            )}
+          </div>
+
           {hidden.length > 0 && (
             <div className="mb-3">
               <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-ink-low">
@@ -82,10 +107,15 @@ export function AddColorMenu() {
             {error && <div className="text-[11px] text-amber-400">{error}</div>}
             <button
               onClick={submitCustom}
-              className="btn-press rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-bg"
+              disabled={atCap}
+              title={atCap ? capHint : undefined}
+              className="btn-press rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-bg transition disabled:cursor-not-allowed disabled:opacity-50"
             >
               Add custom color
             </button>
+            {atCap && (
+              <div className="text-[11px] text-ink-low">{capHint}</div>
+            )}
           </div>
         </div>
       )}

@@ -224,12 +224,15 @@ function RoleCard({
 
 function CustomCard({ id, index }: { id: string; index: number }) {
   const swatchData = useChroma((s) => s.customSwatches.find((c) => c.id === id));
-  const baseHue = useChroma((s) => s.palette.baseColor.h);
+  const base = useChroma((s) => s.palette.baseColor);
+  const harmony = useChroma((s) => s.harmony);
+  const analogousSpan = useChroma((s) => s.analogousSpan);
   const toggleCustomLock = useChroma((s) => s.toggleCustomLock);
   const removeCustomSwatch = useChroma((s) => s.removeCustomSwatch);
+  const updateCustomSwatch = useChroma((s) => s.updateCustomSwatch);
   if (!swatchData) return null;
-  // Effective color tracks the brand base hue (frozen when locked).
-  const color = customSwatchColor(swatchData, baseHue);
+  // Effective color tracks the brand base hue / harmony slot (frozen when locked).
+  const color = customSwatchColor(swatchData, base, harmony, analogousSpan);
   const swatch = resolveSwatch(color);
   const onColor = resolveSwatch(oklchTextOn(color));
 
@@ -245,7 +248,15 @@ function CustomCard({ id, index }: { id: string; index: number }) {
       }
     >
       <div className="flex items-center justify-between gap-1">
-        <span className="truncate text-xs font-semibold">{swatchData.name}</span>
+        <input
+          value={swatchData.name}
+          onChange={(e) => updateCustomSwatch(id, { name: e.target.value })}
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Rename custom color"
+          spellCheck={false}
+          className="min-w-0 flex-1 truncate border-none bg-transparent text-xs font-semibold text-inherit outline-none placeholder:opacity-60 focus:underline"
+          style={{ color: "inherit" }}
+        />
         <div className="flex items-center gap-1">
           <button
             onClick={() => toggleCustomLock(id)}
@@ -271,7 +282,9 @@ function CustomCard({ id, index }: { id: string; index: number }) {
       </div>
       <div>
         <div className="font-mono text-[11px] opacity-90">{swatch.hex}</div>
-        <div className="truncate text-[10px] opacity-75">custom</div>
+        <div className="truncate text-[10px] opacity-75">
+          {swatchData.slot !== undefined ? "harmony" : "custom"}
+        </div>
       </div>
     </div>
   );

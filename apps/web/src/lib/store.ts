@@ -4,6 +4,7 @@ import { create } from "zustand";
 import {
   fixContrast,
   generatePalette,
+  harmonyOffsets,
   normalizeHue,
   resolveSwatch,
   parseToOklch,
@@ -40,10 +41,19 @@ export interface CustomSwatch {
   c: number;
   /** Hue offset (deg) from the brand base hue. */
   hueOffset: number;
+  /**
+   * Harmony offset index (≥3) this swatch occupies. When set, the swatch
+   * auto-fills an unused harmony hue slot and re-positions as the harmony
+   * changes. Absent means a manual/free color (uses `hueOffset` directly).
+   */
+  slot?: number;
   locked: boolean;
   /** Absolute hue used while locked (tracking is suspended). */
   lockedHue?: number;
 }
+
+/** Maximum number of extra brand colors (7 total incl. primary/secondary/accent). */
+export const MAX_CUSTOM_SWATCHES = 4;
 
 /** Signed hue offset of `hue` from `baseHue`, in [-180, 180]. */
 function hueOffsetFrom(baseHue: number, hue: number): number {
@@ -51,15 +61,49 @@ function hueOffsetFrom(baseHue: number, hue: number): number {
 }
 
 /**
- * Effective OKLCH of a custom swatch at the current base hue: tracks the brand
- * (base + offset) unless locked, in which case it stays at its frozen hue.
+ * Effective OKLCH of a custom swatch at the current base hue.
+ * - locked → frozen at `lockedHue`.
+ * - slot swatch → tracks the harmony's offset at `slot` (auto-repositions when
+ *   the harmony/base change), falling back to `hueOffset` if the current
+ *   harmony has no such slot.
+ * - manual → tracks `base.h + hueOffset`.
  */
-export function customSwatchColor(sw: CustomSwatch, baseHue: number): Oklch {
-  const h =
-    sw.locked && sw.lockedHue !== undefined
-      ? sw.lockedHue
-      : normalizeHue(baseHue + sw.hueOffset);
+export function customSwatchColor(
+  sw: CustomSwatch,
+  base: Oklch,
+  harmony: HarmonyType,
+  analogousSpan: number,
+): Oklch {
+  let h: number;
+  if (sw.locked && sw.lockedHue !== undefined) {
+    h = sw.lockedHue;
+  } else if (sw.slot !== undefined) {
+    const offs = harmonyOffsets(harmony, { analogousSpan });
+    const off = offs[sw.slot] ?? sw.hueOffset;
+    h = normalizeHue(base.h + off);
+  } else {
+    h = normalizeHue(base.h + sw.hueOffset);
+  }
   return { l: sw.l, c: sw.c, h };
+}
+
+/**
+ * Lowest harmony slot index ≥3 present in the current harmony that no existing
+ * swatch already occupies, or `undefined` if the harmony exposes none free.
+ */
+export function nextOpenSlot(
+  harmony: HarmonyType,
+  analogousSpan: number,
+  existing: CustomSwatch[],
+): number | undefined {
+  const offs = harmonyOffsets(harmony, { analogousSpan });
+  const used = new Set(
+    existing.map((s) => s.slot).filter((s): s is number => s !== undefined),
+  );
+  for (let i = 3; i < offs.length; i++) {
+    if (!used.has(i)) return i;
+  }
+  return undefined;
 }
 
 /** Frozen per-mode OKLCH for a locked role, re-applied after every rebuild. */
@@ -93,6 +137,8 @@ export interface ChromaState {
   hideRole: (role: Role) => void;
   showRole: (role: Role) => void;
   addCustomSwatch: (name: string, color: Oklch) => void;
+  /** Add an extra brand color, auto-filling an open harmony hue slot if any. */
+  addBrandColor: () => void;
   updateCustomSwatch: (id: string, patch: { name?: string; color?: Oklch }) => void;
   removeCustomSwatch: (id: string) => void;
   toggleCustomLock: (id: string) => void;
@@ -278,19 +324,60 @@ export const useChroma = create<ChromaState>((set, get) => ({
     ),
 
   addCustomSwatch: (name, color) =>
-    set((s) => ({
-      customSwatches: [
-        ...s.customSwatches,
-        {
-          id: `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-          name: name.trim() || "Custom",
-          l: color.l,
-          c: color.c,
-          hueOffset: hueOffsetFrom(s.palette.baseColor.h, color.h),
-          locked: false,
-        },
-      ],
-    })),
+    set((s) => {
+      if (s.customSwatches.length >= MAX_CUSTOM_SWATCHES) return {};
+      return {
+        customSwatches: [
+          ...s.customSwatches,
+          {
+            id: `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+            name: name.trim() || "Custom",
+            l: color.l,
+            c: color.c,
+            hueOffset: hueOffsetFrom(s.palette.baseColor.h, color.h),
+            slot: undefined,
+            locked: false,
+          },
+        ],
+      };
+    }),
+
+  addBrandColor: () =>
+    set((s) => {
+      if (s.customSwatches.length >= MAX_CUSTOM_SWATCHES) return {};
+      const { harmony, analogousSpan, customSwatches } = s;
+      const p = s.palette.light.roles.primary.oklch;
+      const l = p.l;
+      const c = p.c;
+      const id = `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      const name = `Custom ${customSwatches.length + 1}`;
+      const slot = nextOpenSlot(harmony, analogousSpan, customSwatches);
+
+      if (slot !== undefined) {
+        const offs = harmonyOffsets(harmony, { analogousSpan });
+        return {
+          customSwatches: [
+            ...customSwatches,
+            { id, name, l, c, hueOffset: offs[slot] ?? 180, slot, locked: false },
+          ],
+        };
+      }
+
+      // No open harmony slot: place a manual color, spread across the wheel so
+      // it doesn't collide with another custom near the same offset.
+      const usedOffsets = customSwatches
+        .filter((sw) => sw.slot === undefined)
+        .map((sw) => normalizeHue(sw.hueOffset));
+      const near = (target: number) =>
+        usedOffsets.some((o) => Math.abs(o - target) < 20);
+      const hueOffset = !near(180) ? 180 : !near(90) ? 90 : 270;
+      return {
+        customSwatches: [
+          ...customSwatches,
+          { id, name, l, c, hueOffset, slot: undefined, locked: false },
+        ],
+      };
+    }),
 
   updateCustomSwatch: (id, patch) =>
     set((s) => ({
@@ -299,9 +386,12 @@ export const useChroma = create<ChromaState>((set, get) => ({
         const next = { ...c };
         if (patch.name !== undefined) next.name = patch.name.trim() || "Custom";
         if (patch.color) {
+          // Hand-picking an exact color converts the swatch to manual: it stops
+          // tracking the harmony slot and uses the picked hue as its offset.
           next.l = patch.color.l;
           next.c = patch.color.c;
           next.hueOffset = hueOffsetFrom(s.palette.baseColor.h, patch.color.h);
+          next.slot = undefined;
           if (next.locked) next.lockedHue = patch.color.h;
         }
         return next;
@@ -316,14 +406,21 @@ export const useChroma = create<ChromaState>((set, get) => ({
       customSwatches: s.customSwatches.map((c) => {
         if (c.id !== id) return c;
         if (!c.locked) {
-          // Freeze: stop tracking the base hue at the current effective hue.
-          return {
-            ...c,
-            locked: true,
-            lockedHue: normalizeHue(s.palette.baseColor.h + c.hueOffset),
-          };
+          // Freeze at the current EFFECTIVE hue (slot- or offset-derived), so a
+          // slot swatch stays put even after the harmony/base later change.
+          const lockedHue = customSwatchColor(
+            c,
+            s.palette.baseColor,
+            s.harmony,
+            s.analogousSpan,
+          ).h;
+          return { ...c, locked: true, lockedHue };
         }
-        // Unlock: resume tracking from the frozen hue.
+        // Unlock: a manual swatch recomputes its offset from the frozen hue; a
+        // slot swatch keeps its slot and resumes tracking the harmony.
+        if (c.slot !== undefined) {
+          return { ...c, locked: false, lockedHue: undefined };
+        }
         const hueOffset =
           c.lockedHue !== undefined
             ? hueOffsetFrom(s.palette.baseColor.h, c.lockedHue)
