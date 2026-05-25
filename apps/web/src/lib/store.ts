@@ -110,9 +110,12 @@ export function autoHarmonyPlacement(
       const sign = index % 2 === 0 ? 1 : -1;
       return { hueOffset: sign * 2 * analogousSpan, l: baseL, c: baseC };
     }
+    // Complementary accents: the complement first, then flank it ±span growing
+    // (180, 180+span, 180−span, 180+2·span, …) so no two accents collide.
     const k = index - 2;
-    const sign = k % 2 === 0 ? 1 : -1;
-    return { hueOffset: 180 + sign * Math.floor(k / 2) * analogousSpan, l: baseL, c: baseC };
+    const flank =
+      k === 0 ? 0 : (k % 2 === 1 ? 1 : -1) * Math.ceil(k / 2) * analogousSpan;
+    return { hueOffset: 180 + flank, l: baseL, c: baseC };
   }
 
   // Multi-hue schemes: tints/shades of the anchor hues (cycle anchors,
