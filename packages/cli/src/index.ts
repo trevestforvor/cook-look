@@ -130,7 +130,7 @@ interface CliValues {
 function num(value: string | undefined, name: string): number | undefined {
   if (value === undefined) return undefined;
   const n = Number(value);
-  if (Number.isNaN(n)) throw new CliError(`--${name} must be a number, got "${value}".`);
+  if (!Number.isFinite(n)) throw new CliError(`--${name} must be a number, got "${value}".`);
   return n;
 }
 

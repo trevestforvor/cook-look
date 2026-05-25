@@ -263,6 +263,9 @@ export function auditPalette(input: { palette: Palette }): PaletteAudit {
   const bodyTextLabels = new Set([
     "foreground on background",
     "foreground on surface",
+    "on-primary-container on primary-container",
+    "on-secondary-container on secondary-container",
+    "on-accent-container on accent-container",
   ]);
   const passesBodyApca = [light, dark].every((mode) =>
     mode.pairs

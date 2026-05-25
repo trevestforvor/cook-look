@@ -93,6 +93,22 @@ export function resolveSwatch(o: Oklch): Swatch {
   };
 }
 
+/** A small margin below the true gamut boundary so rounded swatches stay verifiably in-gamut. */
+const GAMUT_MARGIN = 0.0016;
+
+/**
+ * Resolve a swatch at `l`/`hue` capped to `intendedChroma`, reducing further when
+ * the gamut requires it. `clamped` is true when the gamut forced the realized
+ * chroma below the intended value — surfacing real gamut compression that a bare
+ * resolveSwatch() misses because builders pre-clamp their input.
+ */
+export function resolveGamutClamped(l: number, intendedChroma: number, hue: number): Swatch {
+  const ceiling = Math.max(0, maxChroma(l, hue) - GAMUT_MARGIN);
+  const c = Math.min(intendedChroma, ceiling);
+  const sw = resolveSwatch(oklch(l, c, hue));
+  return c < intendedChroma - 1e-4 ? { ...sw, clamped: true } : sw;
+}
+
 /** True when an OKLCH color fits inside the sRGB gamut without chroma reduction. */
 export function isInGamut(o: Oklch): boolean {
   return rgbInGamut(toCulori(o));

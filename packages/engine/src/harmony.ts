@@ -149,6 +149,13 @@ export function chromaticSeedHues(
   if (hues.length >= 3) {
     return { primary, secondary: hues[1] ?? primary, accent: hues[2] ?? primary };
   }
+  // Custom harmonies must supply all three chromatic angles explicitly; falling
+  // into the two-hue fallback would silently mismap secondary/accent.
+  if (harmony === "custom") {
+    throw new Error(
+      "custom harmony requires at least 3 hue angles (primary, secondary, accent).",
+    );
+  }
   // Two-hue harmonies (complementary): accent is the complement, secondary is a
   // near-analogous neighbor of the primary for a usable third family.
   const accent = hues[1] ?? primary;

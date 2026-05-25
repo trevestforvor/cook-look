@@ -101,10 +101,11 @@ const CONTAINER_ROLES: readonly ContainerRole[] = [
 /**
  * OKLCH lightness targets for the neutral surface / text / outline system, per
  * mode, adapted from Material 3's neutral tonal roles (tone/100 ≈ OKLCH L).
- * Every role is a *distinct* value (no two collide) and elevation is monotonic:
- * in light mode more-elevated surfaces step slightly darker (toward grey, as M3
- * does); in dark mode they step lighter. Outlines and the reduced-emphasis
- * `foreground-secondary` take the neutral-*variant* (higher-chroma) tint.
+ * Every role is a *distinct* value (no two collide). More-elevated surfaces step
+ * *lighter* in both modes: in light mode toward the near-white background, and in
+ * dark mode away from the dark background toward the foreground. Outlines and the
+ * reduced-emphasis `foreground-secondary` take the neutral-*variant*
+ * (higher-chroma) tint.
  */
 const NEUTRAL_TONES = {
   background: { light: 0.985, dark: 0.2 },

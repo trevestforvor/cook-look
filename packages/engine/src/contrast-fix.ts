@@ -145,6 +145,9 @@ function fixTheme(
     "success",
     "warning",
     "danger",
+    "primary-container",
+    "secondary-container",
+    "accent-container",
   ];
   for (const role of onRoles) {
     const bg = roles[role];
