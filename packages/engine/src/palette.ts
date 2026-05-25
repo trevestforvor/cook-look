@@ -15,6 +15,7 @@ import {
   normalizeHue,
   oklch,
   parseToOklch,
+  resolveGamutClamped,
   resolveSwatch,
 } from "./color.js";
 import { buildNeutralRamp, buildRamp } from "./ramps.js";
@@ -200,12 +201,33 @@ export function buildTheme(seeds: PaletteSeeds, mode: ThemeMode): ThemePalette {
   const nChroma = seeds.chroma.neutral;
   const nvChroma = nChroma * NEUTRAL_VARIANT_FACTOR;
 
+  // Brand families honor the picked base color: in light mode the PRIMARY is the
+  // exact base color the user chose (only gamut-mapped for sRGB display, never
+  // normalized), and secondary/accent sit at the same lightness on their harmony
+  // hues. Dark mode lifts above the base for a coherent pair. Neutrals and the
+  // conventional semantic roles keep their fixed ramp steps.
+  const brandDarkL = clamp(seeds.base.l + 0.17, 0.66, 0.88);
+  const brandMainL = mode === "light" ? seeds.base.l : brandDarkL;
+
   const roles = {} as Record<Role, Swatch>;
   for (const role of RAMP_ROLES) {
-    // A role may override its main step per mode (used by single-hue harmonies
-    // like `shades` to render families as distinct values of one color).
-    const step = seeds.mainSteps?.[role]?.[mode] ?? mainStep;
-    roles[role] = ramps[role].steps[step];
+    const stepOverride = seeds.mainSteps?.[role]?.[mode];
+    if (role === "primary") {
+      // The user's color, as-is (light); a coherent lighter sibling in dark.
+      roles[role] =
+        mode === "light"
+          ? resolveSwatch(seeds.base)
+          : resolveGamutClamped(brandDarkL, seeds.chroma.primary, seeds.hues.primary);
+    } else if (stepOverride !== undefined) {
+      // `shades` distinguishes families by value — keep its ramp-step stepping.
+      roles[role] = ramps[role].steps[stepOverride];
+    } else if ((CONTAINER_ROLES as readonly string[]).includes(role)) {
+      // secondary/accent: the harmony hue at the brand lightness.
+      roles[role] = resolveGamutClamped(brandMainL, seeds.chroma[role], seeds.hues[role]);
+    } else {
+      // neutral + semantic roles keep their fixed main ramp step.
+      roles[role] = ramps[role].steps[mainStep];
+    }
   }
 
   // Neutral surface / text / outline system: each role resolved at a dedicated,
