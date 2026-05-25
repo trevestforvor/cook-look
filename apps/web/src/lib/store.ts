@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import {
+  clamp,
   fixContrast,
   generatePalette,
   harmonyOffsets,
@@ -31,8 +32,10 @@ export const UNRESTRICTED_MAX_C = 0.5;
 /**
  * A user-defined color in the brand family. It tracks the brand base hue via a
  * stored offset (so it rotates along with the rest of the palette), keeping the
- * lightness/chroma the user picked. Locking freezes it at `lockedHue` so it
- * stops tracking — mirroring how locked engine roles are frozen.
+ * lightness/chroma the user picked. Locking freezes it at `lockedColor` (full
+ * OKLCH) so it stops tracking — mirroring how locked engine roles are frozen.
+ * Auto colors now vary both lightness and chroma (not just hue), so freezing
+ * only the hue would produce incorrect results when harmony changes.
  */
 export interface CustomSwatch {
   id: string;
@@ -43,77 +46,104 @@ export interface CustomSwatch {
   hueOffset: number;
   /**
    * Auto-distribution index among the harmony-tracking extra brand colors. When
-   * set, the hue is derived from the harmony via {@link autoHarmonyOffset}, so
-   * the extras arrange themselves around the harmony's hue anchors and
+   * set, the color is derived from the harmony via {@link autoHarmonyPlacement},
+   * so the extras arrange themselves around the harmony's hue anchors and
    * re-arrange when the harmony changes. Absent = a manual/hand-picked color
    * (uses `hueOffset` directly).
    */
   autoIndex?: number;
   locked: boolean;
-  /** Absolute hue used while locked (tracking is suspended). */
-  lockedHue?: number;
+  /** Full OKLCH color used while locked (tracking is suspended). */
+  lockedColor?: Oklch;
 }
 
 /** Maximum number of extra brand colors (7 total incl. primary/secondary/accent). */
 export const MAX_CUSTOM_SWATCHES = 4;
-
-/** Degrees to flank a harmony anchor when distributing extra brand colors around it. */
-const FLANK_STEP = 16;
 
 /** Signed hue offset of `hue` from `baseHue`, in [-180, 180]. */
 function hueOffsetFrom(baseHue: number, hue: number): number {
   return normalizeHue(hue - baseHue + 180) - 180;
 }
 
+export interface AutoPlacement {
+  hueOffset: number;
+  l: number;
+  c: number;
+}
+
 /**
- * Hue offset (deg from base) for the `index`-th auto-distributed extra brand
- * color, given the harmony. The harmony's own surplus hues (offset indices ≥3,
- * e.g. tetradic's 4th) are placed first; beyond those, colors flank the
- * non-primary anchors (complement / secondary / accent …) symmetrically in
- * growing ± steps, so N extras arrange in and around the harmony — e.g. on
- * complementary they cluster two-per-side of the complement. The same way
- * online palette generators expand a scheme to more colors.
+ * Placement (hue offset from base + lightness/chroma) for the `index`-th
+ * auto-distributed extra brand color, informed by the harmony. See
+ * research/palette-expansion-strategy.md.
+ * - single-hue (shades/monochromatic): tonal steps of one hue (shades = darker,
+ *   mono = darker + lower chroma).
+ * - analogous: extend the run, then add a complementary accent for balance.
+ * - multi-hue: tints/shades of the harmony's anchor hues (no new hues invented).
+ * `baseL`/`baseC` are the primary brand swatch's lightness/chroma (the reference).
  */
-export function autoHarmonyOffset(
+export function autoHarmonyPlacement(
   harmony: HarmonyType,
   analogousSpan: number,
   index: number,
-): number {
+  baseL: number,
+  baseC: number,
+): AutoPlacement {
   const anchors = harmonyOffsets(harmony, { analogousSpan });
-  const surplus = anchors.slice(3);
-  if (index < surplus.length) return surplus[index]!;
-  const k = index - surplus.length;
-  // Flank the non-primary anchors (single-hue harmonies flank the base itself).
-  const targets = anchors.length > 1 ? anchors.slice(1) : anchors;
-  const perRing = Math.max(2, targets.length * 2);
-  const ring = Math.floor(k / perRing) + 1;
-  const within = k % perRing;
-  const anchor = targets[Math.floor(within / 2)] ?? 0;
-  const sign = within % 2 === 0 ? 1 : -1;
-  return anchor + sign * ring * FLANK_STEP;
+  const LIGHT_STEP = 0.12;
+  const lightness = (ring: number, sign: number) =>
+    clamp(baseL + sign * ring * LIGHT_STEP, 0.22, 0.94);
+
+  // Single-hue schemes (shades, monochromatic): tonal steps of one hue.
+  if (anchors.length <= 1) {
+    const ring = Math.floor(index / 2) + 1;
+    const sign = index % 2 === 0 ? -1 : 1; // darker first ("adds black")
+    const c =
+      harmony === "monochromatic"
+        ? clamp(baseC * (1 - ring * 0.18), 0.02, baseC)
+        : baseC;
+    return { hueOffset: 0, l: lightness(ring, sign), c };
+  }
+
+  // Analogous: extend the run, then a complementary accent for balance.
+  if (harmony === "analogous") {
+    if (index < 2) {
+      const sign = index % 2 === 0 ? 1 : -1;
+      return { hueOffset: sign * 2 * analogousSpan, l: baseL, c: baseC };
+    }
+    const k = index - 2;
+    const sign = k % 2 === 0 ? 1 : -1;
+    return { hueOffset: 180 + sign * Math.floor(k / 2) * analogousSpan, l: baseL, c: baseC };
+  }
+
+  // Multi-hue schemes: tints/shades of the anchor hues (cycle anchors,
+  // lighter on odd rings then darker on even). No new hues invented.
+  const anchor = anchors[index % anchors.length] ?? 0;
+  const ring = Math.floor(index / anchors.length) + 1;
+  const sign = ring % 2 === 1 ? 1 : -1;
+  return { hueOffset: anchor, l: lightness(ring, sign), c: baseC };
 }
 
 /**
  * Effective OKLCH of a custom swatch at the current base hue.
- * - locked → frozen at `lockedHue`.
- * - auto swatch → distributed around the harmony (re-arranges when harmony/base change).
- * - manual → tracks `base.h + hueOffset`.
+ * - locked → frozen at `lockedColor` (full OKLCH, including lightness/chroma).
+ * - auto swatch → distributed around the harmony via `autoHarmonyPlacement`
+ *   (re-arranges when harmony/base change; lightness + chroma vary by scheme).
+ * - manual → tracks `base.h + hueOffset` using the swatch's own l/c.
  */
 export function customSwatchColor(
   sw: CustomSwatch,
   base: Oklch,
   harmony: HarmonyType,
   analogousSpan: number,
+  primaryL: number,
+  primaryC: number,
 ): Oklch {
-  let h: number;
-  if (sw.locked && sw.lockedHue !== undefined) {
-    h = sw.lockedHue;
-  } else if (sw.autoIndex !== undefined) {
-    h = normalizeHue(base.h + autoHarmonyOffset(harmony, analogousSpan, sw.autoIndex));
-  } else {
-    h = normalizeHue(base.h + sw.hueOffset);
+  if (sw.locked && sw.lockedColor) return sw.lockedColor;
+  if (sw.autoIndex !== undefined) {
+    const p = autoHarmonyPlacement(harmony, analogousSpan, sw.autoIndex, primaryL, primaryC);
+    return { l: p.l, c: p.c, h: normalizeHue(base.h + p.hueOffset) };
   }
-  return { l: sw.l, c: sw.c, h };
+  return { l: sw.l, c: sw.c, h: normalizeHue(base.h + sw.hueOffset) };
 }
 
 /** Frozen per-mode OKLCH for a locked role, re-applied after every rebuild. */
@@ -363,11 +393,13 @@ export const useChroma = create<ChromaState>((set, get) => ({
       const p = s.palette.light.roles.primary.oklch;
       const id = `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
       const name = `Custom ${s.customSwatches.length + 1}`;
-      const hueOffset = autoHarmonyOffset(s.harmony, s.analogousSpan, autoIndex);
+      // l/c stored as fallback if swatch later becomes manual; auto rendering
+      // ignores them and derives l/c from autoHarmonyPlacement at render time.
+      const placement = autoHarmonyPlacement(s.harmony, s.analogousSpan, autoIndex, p.l, p.c);
       return {
         customSwatches: [
           ...s.customSwatches,
-          { id, name, l: p.l, c: p.c, hueOffset, autoIndex, locked: false },
+          { id, name, l: p.l, c: p.c, hueOffset: placement.hueOffset, autoIndex, locked: false },
         ],
       };
     }),
@@ -385,7 +417,7 @@ export const useChroma = create<ChromaState>((set, get) => ({
           next.c = patch.color.c;
           next.hueOffset = hueOffsetFrom(s.palette.baseColor.h, patch.color.h);
           next.autoIndex = undefined;
-          if (next.locked) next.lockedHue = patch.color.h;
+          if (next.locked) next.lockedColor = patch.color;
         }
         return next;
       }),
@@ -399,26 +431,33 @@ export const useChroma = create<ChromaState>((set, get) => ({
       customSwatches: s.customSwatches.map((c) => {
         if (c.id !== id) return c;
         if (!c.locked) {
-          // Freeze at the current EFFECTIVE hue (slot- or offset-derived), so a
-          // slot swatch stays put even after the harmony/base later change.
-          const lockedHue = customSwatchColor(
+          // Freeze at the current EFFECTIVE color (slot- or offset-derived),
+          // capturing full OKLCH so a slot swatch stays put even after the
+          // harmony/base/lightness later change.
+          const primaryL = s.palette.light.roles.primary.oklch.l;
+          const primaryC = s.palette.light.roles.primary.oklch.c;
+          const lockedColor = customSwatchColor(
             c,
             s.palette.baseColor,
             s.harmony,
             s.analogousSpan,
-          ).h;
-          return { ...c, locked: true, lockedHue };
+            primaryL,
+            primaryC,
+          );
+          return { ...c, locked: true, lockedColor };
         }
-        // Unlock: a manual swatch recomputes its offset from the frozen hue; an
-        // auto swatch keeps its index and resumes tracking the harmony.
+        // Unlock: a manual swatch recomputes its offset from the frozen color so
+        // it stays put visually; an auto swatch resumes tracking the harmony.
         if (c.autoIndex !== undefined) {
-          return { ...c, locked: false, lockedHue: undefined };
+          return { ...c, locked: false, lockedColor: undefined };
         }
-        const hueOffset =
-          c.lockedHue !== undefined
-            ? hueOffsetFrom(s.palette.baseColor.h, c.lockedHue)
-            : c.hueOffset;
-        return { ...c, locked: false, hueOffset, lockedHue: undefined };
+        const frozenColor = c.lockedColor;
+        const hueOffset = frozenColor
+          ? hueOffsetFrom(s.palette.baseColor.h, frozenColor.h)
+          : c.hueOffset;
+        const l = frozenColor ? frozenColor.l : c.l;
+        const cc = frozenColor ? frozenColor.c : c.c;
+        return { ...c, locked: false, l, c: cc, hueOffset, lockedColor: undefined };
       }),
     })),
 

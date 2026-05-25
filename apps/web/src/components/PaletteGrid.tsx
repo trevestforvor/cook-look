@@ -227,12 +227,14 @@ function CustomCard({ id, index }: { id: string; index: number }) {
   const base = useChroma((s) => s.palette.baseColor);
   const harmony = useChroma((s) => s.harmony);
   const analogousSpan = useChroma((s) => s.analogousSpan);
+  const prim = useChroma((s) => s.palette[s.mode].roles.primary.oklch);
   const toggleCustomLock = useChroma((s) => s.toggleCustomLock);
   const removeCustomSwatch = useChroma((s) => s.removeCustomSwatch);
   const updateCustomSwatch = useChroma((s) => s.updateCustomSwatch);
   if (!swatchData) return null;
   // Effective color tracks the brand base hue / harmony slot (frozen when locked).
-  const color = customSwatchColor(swatchData, base, harmony, analogousSpan);
+  // primaryL/primaryC inform the tonal placement for auto-distributed swatches.
+  const color = customSwatchColor(swatchData, base, harmony, analogousSpan, prim.l, prim.c);
   const swatch = resolveSwatch(color);
   const onColor = resolveSwatch(oklchTextOn(color));
 
