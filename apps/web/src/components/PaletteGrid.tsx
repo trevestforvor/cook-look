@@ -12,7 +12,7 @@ import {
   type Swatch,
   type ThemePalette,
 } from "@chroma/engine";
-import { useChroma } from "@/lib/store";
+import { useChroma, customSwatchColor } from "@/lib/store";
 import { ROLE_LAYERS, isRampRole } from "@/lib/roles";
 import { AddColorMenu } from "./AddColorMenu";
 
@@ -82,7 +82,9 @@ export function PaletteGrid() {
 
       {ROLE_LAYERS.map((layer) => {
         const roles = layer.roles.filter((r) => visibleRoles.includes(r));
-        if (roles.length === 0) return null;
+        // Custom colors live in the Brand layer and adjust with the palette.
+        const customs = layer.id === "brand" ? customSwatches : [];
+        if (roles.length === 0 && customs.length === 0) return null;
         return (
           <section key={layer.id}>
             <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-low">
@@ -103,23 +105,13 @@ export function PaletteGrid() {
                   locked={Boolean(roleOverrides[role])}
                 />
               ))}
+              {customs.map((c, i) => (
+                <CustomCard key={c.id} id={c.id} index={roles.length + i} />
+              ))}
             </div>
           </section>
         );
       })}
-
-      {customSwatches.length > 0 && (
-        <section>
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-low">
-            Custom
-          </h4>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-            {customSwatches.map((c) => (
-              <CustomCard key={c.id} id={c.id} />
-            ))}
-          </div>
-        </section>
-      )}
 
       <div className="border-t border-line" />
 
@@ -230,40 +222,57 @@ function RoleCard({
   );
 }
 
-function CustomCard({ id }: { id: string }) {
+function CustomCard({ id, index }: { id: string; index: number }) {
   const swatchData = useChroma((s) => s.customSwatches.find((c) => c.id === id));
+  const baseHue = useChroma((s) => s.palette.baseColor.h);
   const toggleCustomLock = useChroma((s) => s.toggleCustomLock);
   const removeCustomSwatch = useChroma((s) => s.removeCustomSwatch);
   if (!swatchData) return null;
-  const swatch = resolveSwatch(swatchData.color);
-  const onColor = resolveSwatch(oklchTextOn(swatchData.color));
+  // Effective color tracks the brand base hue (frozen when locked).
+  const color = customSwatchColor(swatchData, baseHue);
+  const swatch = resolveSwatch(color);
+  const onColor = resolveSwatch(oklchTextOn(color));
 
   return (
     <div
-      className="group relative flex h-24 w-full flex-col justify-between rounded-lg border border-black/10 p-2.5 shadow-sm"
-      style={{ background: swatch.hex, color: onColor.hex }}
+      className="swatch-reveal group relative flex h-24 w-full flex-col justify-between rounded-lg border border-black/10 p-2.5 shadow-sm"
+      style={
+        {
+          background: swatch.hex,
+          color: onColor.hex,
+          "--stagger-i": index,
+        } as React.CSSProperties
+      }
     >
       <div className="flex items-center justify-between gap-1">
         <span className="truncate text-xs font-semibold">{swatchData.name}</span>
         <div className="flex items-center gap-1">
           <button
             onClick={() => toggleCustomLock(id)}
-            aria-label={swatchData.locked ? "Unlock" : "Lock"}
+            aria-label={swatchData.locked ? `Unlock ${swatchData.name}` : `Lock ${swatchData.name}`}
             aria-pressed={swatchData.locked}
+            title={
+              swatchData.locked
+                ? "Locked — won't track the palette"
+                : "Tracking the palette — lock to freeze"
+            }
             className="rounded px-1 text-[11px] leading-none opacity-70 hover:opacity-100"
           >
             {swatchData.locked ? "🔒" : "🔓"}
           </button>
           <button
             onClick={() => removeCustomSwatch(id)}
-            aria-label="Remove custom color"
+            aria-label={`Remove ${swatchData.name}`}
             className="rounded px-1 text-[12px] leading-none opacity-0 transition-opacity group-hover:opacity-70 hover:!opacity-100"
           >
             ×
           </button>
         </div>
       </div>
-      <div className="font-mono text-[11px] opacity-90">{swatch.hex}</div>
+      <div>
+        <div className="font-mono text-[11px] opacity-90">{swatch.hex}</div>
+        <div className="truncate text-[10px] opacity-75">custom</div>
+      </div>
     </div>
   );
 }

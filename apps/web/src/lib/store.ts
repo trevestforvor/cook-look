@@ -4,6 +4,7 @@ import { create } from "zustand";
 import {
   fixContrast,
   generatePalette,
+  normalizeHue,
   resolveSwatch,
   parseToOklch,
   type ContrastFix,
@@ -22,12 +23,39 @@ import type {
 } from "@chroma/agent";
 import { DEFAULT_VISIBLE_ROLES } from "./roles";
 
-/** A user-defined color outside the generated role set. */
+/**
+ * A user-defined color in the brand family. It tracks the brand base hue via a
+ * stored offset (so it rotates along with the rest of the palette), keeping the
+ * lightness/chroma the user picked. Locking freezes it at `lockedHue` so it
+ * stops tracking — mirroring how locked engine roles are frozen.
+ */
 export interface CustomSwatch {
   id: string;
   name: string;
-  color: Oklch;
+  l: number;
+  c: number;
+  /** Hue offset (deg) from the brand base hue. */
+  hueOffset: number;
   locked: boolean;
+  /** Absolute hue used while locked (tracking is suspended). */
+  lockedHue?: number;
+}
+
+/** Signed hue offset of `hue` from `baseHue`, in [-180, 180]. */
+function hueOffsetFrom(baseHue: number, hue: number): number {
+  return normalizeHue(hue - baseHue + 180) - 180;
+}
+
+/**
+ * Effective OKLCH of a custom swatch at the current base hue: tracks the brand
+ * (base + offset) unless locked, in which case it stays at its frozen hue.
+ */
+export function customSwatchColor(sw: CustomSwatch, baseHue: number): Oklch {
+  const h =
+    sw.locked && sw.lockedHue !== undefined
+      ? sw.lockedHue
+      : normalizeHue(baseHue + sw.hueOffset);
+  return { l: sw.l, c: sw.c, h };
 }
 
 /** Frozen per-mode OKLCH for a locked role, re-applied after every rebuild. */
@@ -59,7 +87,7 @@ export interface ChromaState {
   hideRole: (role: Role) => void;
   showRole: (role: Role) => void;
   addCustomSwatch: (name: string, color: Oklch) => void;
-  updateCustomSwatch: (id: string, patch: Partial<Pick<CustomSwatch, "name" | "color">>) => void;
+  updateCustomSwatch: (id: string, patch: { name?: string; color?: Oklch }) => void;
   removeCustomSwatch: (id: string) => void;
   toggleCustomLock: (id: string) => void;
 
@@ -240,7 +268,9 @@ export const useChroma = create<ChromaState>((set, get) => ({
         {
           id: `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
           name: name.trim() || "Custom",
-          color,
+          l: color.l,
+          c: color.c,
+          hueOffset: hueOffsetFrom(s.palette.baseColor.h, color.h),
           locked: false,
         },
       ],
@@ -248,9 +278,18 @@ export const useChroma = create<ChromaState>((set, get) => ({
 
   updateCustomSwatch: (id, patch) =>
     set((s) => ({
-      customSwatches: s.customSwatches.map((c) =>
-        c.id === id ? { ...c, ...patch } : c,
-      ),
+      customSwatches: s.customSwatches.map((c) => {
+        if (c.id !== id) return c;
+        const next = { ...c };
+        if (patch.name !== undefined) next.name = patch.name.trim() || "Custom";
+        if (patch.color) {
+          next.l = patch.color.l;
+          next.c = patch.color.c;
+          next.hueOffset = hueOffsetFrom(s.palette.baseColor.h, patch.color.h);
+          if (next.locked) next.lockedHue = patch.color.h;
+        }
+        return next;
+      }),
     })),
 
   removeCustomSwatch: (id) =>
@@ -258,9 +297,23 @@ export const useChroma = create<ChromaState>((set, get) => ({
 
   toggleCustomLock: (id) =>
     set((s) => ({
-      customSwatches: s.customSwatches.map((c) =>
-        c.id === id ? { ...c, locked: !c.locked } : c,
-      ),
+      customSwatches: s.customSwatches.map((c) => {
+        if (c.id !== id) return c;
+        if (!c.locked) {
+          // Freeze: stop tracking the base hue at the current effective hue.
+          return {
+            ...c,
+            locked: true,
+            lockedHue: normalizeHue(s.palette.baseColor.h + c.hueOffset),
+          };
+        }
+        // Unlock: resume tracking from the frozen hue.
+        const hueOffset =
+          c.lockedHue !== undefined
+            ? hueOffsetFrom(s.palette.baseColor.h, c.lockedHue)
+            : c.hueOffset;
+        return { ...c, locked: false, hueOffset, lockedHue: undefined };
+      }),
     })),
 
   brief: null,
