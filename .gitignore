@@ -8,6 +8,7 @@ dist/
 out/
 *.tsbuildinfo
 next-env.d.ts
+node-compile-cache/
 
 # transient: static-export build moves the api route here and restores it
 .api-stash/
@@ -26,3 +27,4 @@ pnpm-debug.log*
 .DS_Store
 coverage/
 .vercel
+.gstack/

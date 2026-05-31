@@ -1,17 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import {
-  harmonyHues,
-  resolveSwatch,
-  type Oklch,
-} from "@chroma/engine";
-import { useChroma } from "@/lib/store";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useReducedMotion } from "motion/react";
+import { harmonyHues, resolveSwatch, type Oklch } from "@chroma/engine";
+import { useChroma, SRGB_MAX_C, UNRESTRICTED_MAX_C } from "@/lib/store";
+import { useGamutField } from "@/lib/useGamutField";
+import { useRafThrottle } from "@/lib/use-raf-throttle";
+import { Slider } from "@/components/Slider";
 
 const SIZE = 320; // CSS pixels
-const RES = 200; // canvas backing resolution
-const MAX_C = 0.37; // chroma at the rim
 const PAD = 10;
+// Keyboard nudge increments
+const HUE_STEP = 2; // degrees
+const CHROMA_STEP = 0.01;
 
 /** Screen (x,y) relative to center → OKLCH hue + chroma at a given lightness. */
 function pointToOklch(
@@ -21,6 +22,7 @@ function pointToOklch(
   cy: number,
   radius: number,
   l: number,
+  maxC: number,
 ): Oklch {
   const dx = x - cx;
   const dy = y - cy;
@@ -28,7 +30,7 @@ function pointToOklch(
   const angle = Math.atan2(-dy, dx); // flip y so "up" is positive
   let hue = (angle * 180) / Math.PI;
   if (hue < 0) hue += 360;
-  const chroma = Math.min(1, r / radius) * MAX_C;
+  const chroma = Math.min(1, r / radius) * maxC;
   return { l, c: chroma, h: hue };
 }
 
@@ -38,15 +40,11 @@ function oklchToPoint(
   cx: number,
   cy: number,
   radius: number,
+  maxC: number,
 ): { x: number; y: number } {
   const a = (o.h * Math.PI) / 180;
-  const rr = Math.min(1, o.c / MAX_C) * radius;
+  const rr = Math.min(1, o.c / maxC) * radius;
   return { x: cx + Math.cos(a) * rr, y: cy - Math.sin(a) * rr };
-}
-
-function hexToRgb(hex: string): [number, number, number] {
-  const n = parseInt(hex.slice(1), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
 export function ColorWheel() {
@@ -54,73 +52,119 @@ export function ColorWheel() {
   const harmony = useChroma((s) => s.harmony);
   const span = useChroma((s) => s.analogousSpan);
   const setBase = useChroma((s) => s.setBase);
+  const setBaseLive = useChroma((s) => s.setBaseLive);
+  const unrestricted = useChroma((s) => s.unrestrictedChroma);
+  const maxC = unrestricted ? UNRESTRICTED_MAX_C : SRGB_MAX_C;
 
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
+  const lastBase = useRef<Oklch | null>(null);
+  // Tracks whether the pointer is currently down on the wheel (for marker state)
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Commit halo: bump this counter on each setBase call to trigger the pulse
+  const [haloKey, setHaloKey] = useState(0);
+  const reducedMotion = useReducedMotion();
 
   const radius = SIZE / 2 - PAD;
   const center = SIZE / 2;
 
-  // Render the OKLCH disk at the current lightness.
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+  // GPU-rendered OKLCH gamut disk at the current lightness — crisp at any DPI,
+  // a single sub-millisecond draw call per redraw (see useGamutField).
+  const fieldRef = useGamutField({ L: base.l, maxC, size: radius * 2 });
 
-    const img = ctx.createImageData(RES, RES);
-    const scale = SIZE / RES;
-    const cR = radius / scale;
-    const cCenter = center / scale;
-
-    for (let py = 0; py < RES; py++) {
-      for (let px = 0; px < RES; px++) {
-        const dx = px - cCenter;
-        const dy = py - cCenter;
-        const r = Math.hypot(dx, dy);
-        const idx = (py * RES + px) * 4;
-        if (r > cR) {
-          img.data[idx + 3] = 0;
-          continue;
-        }
-        const o = pointToOklch(px, py, cCenter, cCenter, cR, base.l);
-        const swatch = resolveSwatch(o);
-        const [rr, gg, bb] = hexToRgb(swatch.hex);
-        img.data[idx] = rr;
-        img.data[idx + 1] = gg;
-        img.data[idx + 2] = bb;
-        // Dim colors that fell outside sRGB so the reachable gamut is visible.
-        img.data[idx + 3] = swatch.clamped ? 70 : 255;
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-  }, [base.l, radius, center]);
+  const commitBase = useCallback(
+    (next: Oklch) => {
+      setBase(next);
+      setHaloKey((k) => k + 1);
+    },
+    [setBase],
+  );
 
   const updateFromEvent = useCallback(
-    (clientX: number, clientY: number) => {
+    (clientX: number, clientY: number, commit: boolean) => {
       const container = containerRef.current;
       if (!container) return;
       const rect = container.getBoundingClientRect();
-      const x = clientX - rect.left;
-      const y = clientY - rect.top;
-      const next = pointToOklch(x, y, center, center, radius, base.l);
-      setBase(next);
+      const next = pointToOklch(
+        clientX - rect.left,
+        clientY - rect.top,
+        center,
+        center,
+        radius,
+        base.l,
+        maxC,
+      );
+      lastBase.current = next;
+      // Live drag = cheap marker move; release = one full palette rebuild.
+      if (commit) {
+        commitBase(next);
+      } else {
+        setBaseLive(next);
+      }
     },
-    [base.l, center, radius, setBase],
+    [base.l, center, radius, commitBase, setBaseLive],
+  );
+
+  // Coalesce live drag moves to one cheap update per frame.
+  const throttledLive = useRafThrottle((x: number, y: number) =>
+    updateFromEvent(x, y, false),
   );
 
   const onPointerDown = (e: React.PointerEvent) => {
     dragging.current = true;
+    setIsDragging(true);
     (e.target as Element).setPointerCapture?.(e.pointerId);
-    updateFromEvent(e.clientX, e.clientY);
+    updateFromEvent(e.clientX, e.clientY, false);
   };
   const onPointerMove = (e: React.PointerEvent) => {
     if (!dragging.current) return;
-    updateFromEvent(e.clientX, e.clientY);
+    throttledLive(e.clientX, e.clientY);
   };
   const onPointerUp = () => {
+    if (!dragging.current) return;
     dragging.current = false;
+    setIsDragging(false);
+    // Commit the final position: rebuild the full palette exactly once.
+    if (lastBase.current) commitBase(lastBase.current);
+  };
+
+  // ── Keyboard control on the base marker ─────────────────────────────────
+  // Arrow keys nudge hue (←/→) and chroma (↑/↓); commit on keyup.
+  const pendingKeyBase = useRef<Oklch | null>(null);
+  const onMarkerKeyDown = (e: React.KeyboardEvent) => {
+    let next: Oklch | null = null;
+    switch (e.key) {
+      case "ArrowRight":
+        e.preventDefault();
+        next = { ...base, h: (base.h + HUE_STEP) % 360 };
+        break;
+      case "ArrowLeft":
+        e.preventDefault();
+        next = { ...base, h: (base.h - HUE_STEP + 360) % 360 };
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        next = { ...base, c: Math.min(maxC, base.c + CHROMA_STEP) };
+        break;
+      case "ArrowDown":
+        e.preventDefault();
+        next = { ...base, c: Math.max(0, base.c - CHROMA_STEP) };
+        break;
+    }
+    if (next) {
+      pendingKeyBase.current = next;
+      setBaseLive(next);
+    }
+  };
+  const onMarkerKeyUp = (e: React.KeyboardEvent) => {
+    if (
+      ["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown"].includes(e.key) &&
+      pendingKeyBase.current
+    ) {
+      commitBase(pendingKeyBase.current);
+      pendingKeyBase.current = null;
+    }
   };
 
   const harmonyPoints = useMemo(() => {
@@ -128,30 +172,40 @@ export function ColorWheel() {
     return hues.map((h, i) => ({
       key: i,
       isBase: i === 0,
-      ...oklchToPoint({ l: base.l, c: base.c, h }, center, center, radius),
+      ...oklchToPoint({ l: base.l, c: base.c, h }, center, center, radius, maxC),
       hex: resolveSwatch({ l: base.l, c: base.c, h }).hex,
     }));
-  }, [base.h, base.c, base.l, harmony, span, center, radius]);
+  }, [base.h, base.c, base.l, harmony, span, center, radius, maxC]);
+
+  const basePoint = harmonyPoints[0];
 
   return (
     <div className="flex flex-col items-center gap-4">
+      {/* role="application" signals the wheel is an interactive widget */}
       <div
+        role="application"
+        aria-label="OKLCH color wheel"
         ref={containerRef}
         className="relative touch-none select-none rounded-full"
-        style={{ width: SIZE, height: SIZE }}
+        style={{ width: SIZE, height: SIZE, touchAction: "manipulation" }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerUp}
       >
+        {/* Commit halo ring — sits outside the wheel, animates on commit */}
+        {!reducedMotion && (
+          <HaloRing key={haloKey} size={SIZE} />
+        )}
+
         <canvas
-          ref={canvasRef}
-          width={RES}
-          height={RES}
-          className="absolute inset-0 h-full w-full rounded-full"
-          style={{ imageRendering: "auto" }}
+          ref={fieldRef}
+          aria-hidden
+          className="absolute rounded-full"
+          style={{ top: PAD, left: PAD, width: radius * 2, height: radius * 2 }}
         />
         <svg
+          aria-hidden
           className="pointer-events-none absolute inset-0"
           width={SIZE}
           height={SIZE}
@@ -186,6 +240,16 @@ export function ColorWheel() {
                 fill={p.hex}
                 stroke="#fff"
                 strokeWidth={p.isBase ? 3 : 2}
+                style={{
+                  filter: p.isBase && isDragging
+                    ? `drop-shadow(0 0 4px ${p.hex}66)`
+                    : undefined,
+                  transform: p.isBase && isDragging
+                    ? `scale(1.15) translate(0,0)`
+                    : undefined,
+                  transformOrigin: `${p.x}px ${p.y}px`,
+                  transition: "transform 100ms cubic-bezier(0.22,1,0.36,1), filter 100ms cubic-bezier(0.22,1,0.36,1)",
+                }}
               />
               {p.isBase && (
                 <circle
@@ -200,6 +264,32 @@ export function ColorWheel() {
             </g>
           ))}
         </svg>
+
+        {/* Keyboard-operable base marker overlay — invisible but focusable.
+            Positioned over the base marker circle; 44×44px hit target. */}
+        {basePoint && (
+          <div
+            role="slider"
+            tabIndex={0}
+            aria-label="Base color hue and chroma"
+            aria-valuemin={0}
+            aria-valuemax={360}
+            aria-valuenow={Math.round(base.h)}
+            aria-valuetext={`Hue ${Math.round(base.h)}°, Chroma ${base.c.toFixed(2)}`}
+            onKeyDown={onMarkerKeyDown}
+            onKeyUp={onMarkerKeyUp}
+            className="absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+            style={{
+              left: basePoint.x,
+              top: basePoint.y,
+              width: 44,
+              height: 44,
+              // Center the 44px hit area over the 22px visual circle
+              marginLeft: -22,
+              marginTop: -22,
+            }}
+          />
+        )}
       </div>
 
       <LightnessSlider />
@@ -207,25 +297,59 @@ export function ColorWheel() {
   );
 }
 
+/** The commit halo — a ring that pulses outward on each palette commit.
+ *  Mounted fresh (new `key`) on each commit so the animation re-triggers. */
+function HaloRing({ size }: { size: number }) {
+  const [active, setActive] = useState(false);
+  useEffect(() => {
+    // Defer one frame so the element is painted before the class is added
+    const id = requestAnimationFrame(() => setActive(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  return (
+    <div
+      aria-hidden
+      className={`pointer-events-none absolute inset-0 rounded-full border-2 border-accent ${active ? "wheel-halo-active" : "opacity-0"}`}
+      style={{ width: size, height: size }}
+    />
+  );
+}
+
 function LightnessSlider() {
   const base = useChroma((s) => s.base);
   const setBase = useChroma((s) => s.setBase);
+  const setBaseLive = useChroma((s) => s.setBaseLive);
+
+  // Scrubbing lightness redraws the GPU disk every frame; keep the palette
+  // rebuild off the drag (live update) and commit once on release.
+  const liveBase = useRafThrottle(setBaseLive);
+  const pendingL = useRef(base.l);
+
   return (
-    <label className="flex w-full max-w-[320px] flex-col gap-1 text-xs text-neutral-400">
+    <label className="flex w-full max-w-[320px] flex-col gap-1.5 text-xs text-ink-lo">
       <div className="flex justify-between">
-        <span>Lightness (OKLCH L)</span>
-        <span className="font-mono text-neutral-200">
+        <span className="font-medium uppercase tracking-wide">
+          Lightness (OKLCH L)
+        </span>
+        <span className="font-mono text-ink-hi">
           {Math.round(base.l * 100)}%
         </span>
       </div>
-      <input
-        type="range"
+      <Slider
+        aria-label="Lightness"
         min={0}
         max={1}
         step={0.01}
         value={base.l}
-        onChange={(e) => setBase({ ...base, l: Number(e.target.value) })}
-        className="accent-blue-500"
+        trackGradient={`linear-gradient(to right, oklch(0 0 ${base.h}), oklch(0.5 ${base.c} ${base.h}), oklch(1 0 ${base.h}))`}
+        onChange={(e) => {
+          const l = Number(e.target.value);
+          pendingL.current = l;
+          liveBase({ ...base, l });
+        }}
+        onPointerUp={() => setBase({ ...base, l: pendingL.current })}
+        onKeyUp={() => setBase({ ...base, l: pendingL.current })}
       />
     </label>
   );

@@ -30,12 +30,16 @@ const VERSION = "0.1.0";
 const HARMONIES: HarmonyType[] = [
   "complementary",
   "split-complementary",
+  "double-split-complementary",
   "analogous",
   "monochromatic",
   "triadic",
   "tetradic",
   "square",
   "rectangular",
+  "compound",
+  "shades",
+  "custom",
 ];
 
 const ROLE_ORDER: Role[] = [
@@ -49,6 +53,19 @@ const ROLE_ORDER: Role[] = [
   "success",
   "warning",
   "danger",
+];
+
+/** Expanded roles, listed after the core roles in human-readable output. */
+const EXTENDED_ROLE_ORDER: Role[] = [
+  "primary-container",
+  "secondary-container",
+  "accent-container",
+  "surface-elevated",
+  "background-elevated",
+  "outline",
+  "outline-variant",
+  "foreground-secondary",
+  "foreground-tertiary",
 ];
 
 /** An error whose message is safe and actionable to show the user. */
@@ -92,7 +109,11 @@ interface CliValues {
   base?: string;
   harmony?: string;
   "analogous-span"?: string;
+  angles?: string;
   chroma?: string;
+  "neutral-chroma"?: string;
+  "semantic-harmony"?: string;
+  "unrestricted-chroma"?: boolean;
   model?: string;
   use?: string;
   level?: string;
@@ -110,8 +131,32 @@ interface CliValues {
 function num(value: string | undefined, name: string): number | undefined {
   if (value === undefined) return undefined;
   const n = Number(value);
-  if (Number.isNaN(n)) throw new CliError(`--${name} must be a number, got "${value}".`);
+  if (!Number.isFinite(n)) throw new CliError(`--${name} must be a number, got "${value}".`);
   return n;
+}
+
+/**
+ * Parse a comma-separated `--angles` list (degrees) into numbers. Returns
+ * undefined when the flag is absent. Throws on non-numeric entries.
+ */
+function parseAngles(value: string | undefined): number[] | undefined {
+  if (value === undefined) return undefined;
+  const parts = value
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  if (parts.length === 0) {
+    throw new CliError(
+      "--angles is empty. Provide degrees relative to the base hue, e.g. --angles '0,40,180,210'.",
+    );
+  }
+  return parts.map((p) => {
+    const n = Number(p);
+    if (Number.isNaN(n)) {
+      throw new CliError(`--angles must be comma-separated numbers, got "${p}".`);
+    }
+    return n;
+  });
 }
 
 /** Generate a palette from the generate-style flags (--base required). */
@@ -125,12 +170,43 @@ function generateFromFlags(values: CliValues): Palette {
   if (!base) {
     throw new CliError(`could not parse --base "${values.base}". Use a hex, rgb(), oklch(), or CSS color name.`);
   }
+  const harmony = validateHarmony(values.harmony);
+  const angles = parseAngles(values.angles);
+  if (angles && harmony !== "custom") {
+    throw new CliError(
+      `--angles only applies to --harmony custom (got --harmony ${harmony}).`,
+    );
+  }
+  if (harmony === "custom" && !angles) {
+    throw new CliError(
+      "--harmony custom requires --angles, e.g. --angles '0,40,180,210' (degrees relative to the base hue).",
+    );
+  }
+  const neutralChroma = num(values["neutral-chroma"], "neutral-chroma");
+  if (neutralChroma !== undefined && (neutralChroma < 0 || neutralChroma > 0.1)) {
+    throw new CliError(
+      `--neutral-chroma must be in the range 0..0.1, got ${neutralChroma}.`,
+    );
+  }
+  const semanticHarmony = num(values["semantic-harmony"], "semantic-harmony");
+  if (
+    semanticHarmony !== undefined &&
+    (semanticHarmony < 0 || semanticHarmony > 60)
+  ) {
+    throw new CliError(
+      `--semantic-harmony must be in the range 0..60, got ${semanticHarmony}.`,
+    );
+  }
   return generatePalette({
     baseColor: base,
-    harmony: validateHarmony(values.harmony),
+    harmony,
     options: {
       analogousSpan: num(values["analogous-span"], "analogous-span"),
       primaryChroma: num(values.chroma, "chroma"),
+      neutralChroma,
+      semanticHarmony,
+      customAngles: angles,
+      unrestrictedChroma: values["unrestricted-chroma"],
     },
   });
 }
@@ -180,19 +256,33 @@ function renderPalette(palette: Palette): void {
     `${palette.harmony} palette · base oklch(${Math.round(palette.baseColor.l * 100)}% ${palette.baseColor.c.toFixed(3)} ${Math.round(palette.baseColor.h)})`,
   );
   lines.push("");
-  lines.push("  role         light            dark             name");
+  lines.push("  role                  light            dark             name");
   for (const role of ROLE_ORDER) {
     const l = palette.light.roles[role];
     const d = palette.dark.roles[role];
     lines.push(
-      `  ${role.padEnd(11)} ${swatch(l.hex)} ${l.hex}  ${swatch(d.hex)} ${d.hex}  ${names[role]}`,
+      `  ${role.padEnd(20)} ${swatch(l.hex)} ${l.hex}  ${swatch(d.hex)} ${d.hex}  ${names[role]}`,
+    );
+  }
+  lines.push("");
+  lines.push("  extended role         light            dark");
+  for (const role of EXTENDED_ROLE_ORDER) {
+    const l = palette.light.roles[role];
+    const d = palette.dark.roles[role];
+    lines.push(
+      `  ${role.padEnd(20)} ${swatch(l.hex)} ${l.hex}  ${swatch(d.hex)} ${d.hex}`,
     );
   }
   lines.push("");
   const clamped =
     audit.light.clamped.length + audit.dark.clamped.length;
+  const harmonyStatus = audit.harmony.singleHue
+    ? "single-hue (N/A)"
+    : audit.harmony.ok
+      ? "verified"
+      : "off-target";
   lines.push(
-    `  accessibility: body text ${audit.passesBodyApca ? "PASS" : "FAIL"} (APCA Lc 75) · harmony ${audit.harmony.ok ? "verified" : "off-target"} · ${clamped} gamut-clamped`,
+    `  accessibility: body text ${audit.passesBodyApca ? "PASS" : "FAIL"} (APCA Lc 75) · harmony ${harmonyStatus} · ${clamped} gamut-clamped`,
   );
   out(lines.join("\n"));
 }
@@ -216,9 +306,18 @@ function renderAudit(palette: Palette): void {
     lines.push("");
   }
   lines.push(
-    `harmony ${audit.harmony.harmony}: ${audit.harmony.ok ? "verified" : "off-target"} (expected offsets ${audit.harmony.expectedOffsets.join(", ")})`,
+    audit.harmony.singleHue
+      ? `harmony ${audit.harmony.harmony}: single-hue, offset check N/A`
+      : `harmony ${audit.harmony.harmony}: ${audit.harmony.ok ? "verified" : "off-target"} (expected offsets ${audit.harmony.expectedOffsets.join(", ")})`,
   );
   lines.push(`body text meets APCA Lc 75 in both modes: ${audit.passesBodyApca ? "yes" : "no"}`);
+  if (audit.warnings.length > 0) {
+    lines.push("");
+    lines.push("warnings (non-fatal):");
+    for (const w of audit.warnings) {
+      lines.push(`  ! [${w.kind}] ${w.message}`);
+    }
+  }
   out(lines.join("\n"));
 }
 
@@ -242,18 +341,41 @@ async function cmdPaletteFix(values: CliValues): Promise<void> {
   const use =
     values.use === "large" || values.use === "nonText" ? values.use : "body";
   const level = values.level === "AAA" ? "AAA" : "AA";
-  const { palette: fixed, changes } = fixContrast({
+  const { palette: fixed, changes, unreachable } = fixContrast({
     palette,
     target: { model, use, level },
   });
   if (values.json) {
-    out(JSON.stringify({ palette: fixed, changes }));
+    // Emit the bare palette (same shape as `generate --json`) so commands pipe.
+    // Changes and unreachable targets go to stderr to stay out of the data stream.
+    if (changes.length > 0) {
+      process.stderr.write(`Applied ${changes.length} fix(es)\n`);
+    }
+    if (unreachable && unreachable.length > 0) {
+      for (const u of unreachable) {
+        process.stderr.write(
+          `chroma: ${u.label}: could not reach target — best achievable ${model === "apca" ? "APCA Lc" : "WCAG"} ${u.best}\n`,
+        );
+      }
+    }
+    out(JSON.stringify(fixed));
   } else {
-    if (changes.length === 0) out("No changes — palette already meets the target.");
-    else {
-      out(`Applied ${changes.length} fix(es):`);
-      for (const c of changes) {
-        out(`  ${c.label}: ${c.reason} (${c.before} → ${c.after})`);
+    if (changes.length === 0 && (!unreachable || unreachable.length === 0)) {
+      out("No changes — palette already meets the target.");
+    } else {
+      if (changes.length > 0) {
+        out(`Applied ${changes.length} fix(es):`);
+        for (const c of changes) {
+          out(`  ${c.label}: ${c.reason} (${c.before} → ${c.after})`);
+        }
+      }
+      if (unreachable && unreachable.length > 0) {
+        out(`Could not reach target for ${unreachable.length} pairing(s):`);
+        for (const u of unreachable) {
+          out(
+            `  ${u.label}: best achievable ${model === "apca" ? "APCA Lc" : "WCAG"} ${u.best} (target ${u.target})`,
+          );
+        }
       }
       out("");
     }
@@ -273,7 +395,18 @@ async function cmdPaletteRecolor(values: CliValues): Promise<void> {
   if (!newBase && !newHarmony) {
     throw new CliError("recolor needs --base <color> and/or --harmony <type>.");
   }
-  const next = recolor({ palette, newBase, newHarmony });
+  const angles = parseAngles(values.angles);
+  if (angles && newHarmony !== "custom") {
+    throw new CliError(
+      "--angles only applies when recoloring to --harmony custom.",
+    );
+  }
+  if (newHarmony === "custom" && !angles && palette.harmony !== "custom") {
+    throw new CliError(
+      "recoloring to --harmony custom requires --angles, e.g. --angles '0,40,180,210'.",
+    );
+  }
+  const next = recolor({ palette, newBase, newHarmony, customAngles: angles });
   if (values.json) out(JSON.stringify(next));
   else renderPalette(next);
 }
@@ -377,8 +510,20 @@ COMMANDS
   palette generate   Build a light+dark role palette from a base color.
       --base <color>          base color: hex, rgb(), oklch(), or CSS name (required)
       --harmony <type>        ${HARMONIES.join(" | ")}
+                                · shades   single base hue, families step in value (not hue)
+                                · compound analogous + complementary (offsets 0,30,180,210)
+                                · double-split-complementary  base ±30 + complement ±30
+                                            (offsets 0,30,150,-30,210; roles map 0/30/150)
+                                · custom   arbitrary offsets via --angles
       --analogous-span <deg>  span for analogous harmony (default 30)
-      --chroma <0..0.37>      override the primary chroma
+      --angles <list>         hue offsets in degrees for --harmony custom,
+                                e.g. --angles '0,40,180,210' (relative to base hue)
+      --chroma <0..0.5>       override the primary chroma
+      --neutral-chroma <0..0.1>  chroma tint applied to the neutral ramp
+                                (0 = pure gray; default scales with primary chroma)
+      --semantic-harmony <0..60>  max degrees success/warning/danger shift toward
+                                the brand's warm/cool temperature (0 = fixed; default 15)
+      --unrestricted-chroma   allow base/brand chroma beyond the ~0.37 sRGB cap (default off)
       --json                  emit the full Palette as JSON (for piping)
 
   palette audit      Full APCA + WCAG + harmony + gamut report.
@@ -409,6 +554,8 @@ GLOBAL
 EXAMPLES
   chroma palette generate --base '#1f9d55' --harmony analogous
   chroma palette generate --base '#1f9d55' --harmony analogous --json | chroma palette fix
+  chroma palette generate --base '#3b82f6' --harmony shades
+  chroma palette generate --base '#3b82f6' --harmony custom --angles '0,40,180,210'
   chroma color analyze 'rebeccapurple'
   chroma export --format tailwind --base '#3b82f6' --harmony triadic`;
 
@@ -422,7 +569,11 @@ async function main(): Promise<void> {
       base: { type: "string" },
       harmony: { type: "string" },
       "analogous-span": { type: "string" },
+      angles: { type: "string" },
       chroma: { type: "string" },
+      "neutral-chroma": { type: "string" },
+      "semantic-harmony": { type: "string" },
+      "unrestricted-chroma": { type: "boolean" },
       model: { type: "string" },
       use: { type: "string" },
       level: { type: "string" },

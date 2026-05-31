@@ -17,6 +17,7 @@ export {
   normalizeHue,
   clamp,
   isInGamut,
+  displayRgb255,
   maxChroma,
 } from "./color.js";
 
@@ -36,7 +37,11 @@ export {
 export {
   harmonyOffsets,
   harmonyHues,
+  harmonyKind,
   chromaticSeedHues,
+  normalizeCustomAngles,
+  COMPOUND_OFFSETS,
+  type HarmonyKind,
   type HarmonyOptions,
 } from "./harmony.js";
 

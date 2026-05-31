@@ -16,11 +16,19 @@ export function recolor(input: {
   palette: Palette;
   newBase?: Oklch | string;
   newHarmony?: HarmonyType;
+  /** Custom hue offsets, required when recoloring to the `custom` harmony. */
+  customAngles?: number[];
 }): Palette {
-  const { palette, newBase, newHarmony } = input;
+  const { palette, newBase, newHarmony, customAngles } = input;
+  const harmony = newHarmony ?? palette.harmony;
+  // Preserve the original custom angles when keeping the custom harmony and no
+  // new angles were supplied (recovered from the seeds' recorded offsets).
+  const angles =
+    customAngles ??
+    (harmony === "custom" ? palette.seeds.harmonyOffsets : undefined);
   return generatePalette({
     baseColor: newBase ?? palette.baseColor,
-    harmony: newHarmony ?? palette.harmony,
-    options: { primaryChroma: palette.seeds.chroma.primary },
+    harmony,
+    options: { primaryChroma: palette.seeds.chroma.primary, customAngles: angles },
   });
 }

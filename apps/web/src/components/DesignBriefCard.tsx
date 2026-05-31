@@ -15,8 +15,8 @@ export function DesignBriefCard() {
 
   if (!brief) {
     return (
-      <div className="rounded-xl border border-dashed border-neutral-700 bg-neutral-900/40 p-4 text-xs leading-relaxed text-neutral-400">
-        <span className="font-semibold text-neutral-200">No design brief yet.</span>{" "}
+      <div className="rounded-xl border border-dashed border-line bg-surface-0 p-4 text-xs leading-relaxed text-ink-mid">
+        <span className="font-semibold text-ink-hi">No design brief yet.</span>{" "}
         Ask the assistant to design a palette (e.g. “a calm fintech palette from
         our brand blue”). It investigates first, synthesizes a brief here, and
         traces every color choice back to it.
@@ -32,10 +32,12 @@ export function DesignBriefCard() {
   };
 
   return (
-    <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4">
+    <div className="rounded-xl border border-line bg-surface-0 p-4">
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-neutral-100">Design brief</h3>
-        <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] text-neutral-400">
+        <h3 className="font-display text-sm font-medium text-ink-hi">
+          Design brief
+        </h3>
+        <span className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-ink-mid">
           v{brief.version}
         </span>
       </div>
@@ -61,11 +63,11 @@ export function DesignBriefCard() {
         <Field label="Harmony" value={brief.direction.harmony} />
       </div>
 
-      <div className="mt-3 rounded-lg bg-neutral-950/60 p-2.5">
-        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
+      <div className="mt-3 rounded-lg bg-surface-1 p-2.5">
+        <div className="mb-1 font-display text-[10px] font-medium uppercase tracking-wide text-ink-lo">
           Rationale
         </div>
-        <p className="text-xs leading-relaxed text-neutral-300">
+        <p className="text-xs leading-relaxed text-ink-mid">
           {brief.direction.rationale}
         </p>
       </div>
@@ -77,12 +79,12 @@ export function DesignBriefCard() {
           onKeyDown={(e) => e.key === "Enter" && submitRevision()}
           placeholder="Redirect the brief, e.g. “more premium”"
           disabled={busy}
-          className="flex-1 rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs text-neutral-100 outline-none disabled:opacity-50"
+          className="flex-1 rounded-md border border-line bg-surface-2 px-2 py-1.5 text-xs text-ink-hi outline-none disabled:opacity-50"
         />
         <button
           onClick={submitRevision}
           disabled={busy}
-          className="rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+          className="rounded-md bg-accent px-2.5 py-1.5 text-xs font-medium text-bg transition hover:opacity-90 disabled:opacity-50"
         >
           Re-derive
         </button>
@@ -94,10 +96,10 @@ export function DesignBriefCard() {
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
+      <div className="font-display text-[10px] font-medium uppercase tracking-wide text-ink-lo">
         {label}
       </div>
-      <div className="capitalize text-neutral-200">{value}</div>
+      <div className="capitalize text-ink-hi">{value}</div>
     </div>
   );
 }
@@ -105,14 +107,14 @@ function Field({ label, value }: { label: string; value: string }) {
 function Chips({ label, items }: { label: string; items: string[] }) {
   return (
     <div>
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
+      <div className="font-display text-[10px] font-medium uppercase tracking-wide text-ink-lo">
         {label}
       </div>
       <div className="mt-0.5 flex flex-wrap gap-1">
         {items.map((item) => (
           <span
             key={item}
-            className="rounded-full bg-neutral-800 px-2 py-0.5 text-[11px] text-neutral-200"
+            className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-ink-hi"
           >
             {item}
           </span>
