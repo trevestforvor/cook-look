@@ -59,6 +59,9 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    # The github-pages environment only allows deploys from the default branch,
+    # so skip (rather than fail) on workflow_dispatch runs from other branches.
+    if: github.ref == 'refs/heads/main'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
