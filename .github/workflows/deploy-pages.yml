@@ -4,8 +4,8 @@ name: Deploy editor to GitHub Pages
 # The AI assistant is disabled in this build (it needs a server); every other
 # feature runs fully client-side.
 #
-# One-time setup: repo Settings → Pages → Build and deployment → Source =
-# "GitHub Actions". The site will be served at
+# The Configure Pages step auto-enables Pages (Source = GitHub Actions) on the
+# first run, so no manual repo setting is required. The site is served at
 # https://<owner>.github.io/cook-look/
 
 on:
@@ -38,6 +38,13 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      # Enables Pages with Source = "GitHub Actions" if it isn't already, so the
+      # deploy step's first run doesn't 404 on a not-yet-enabled Pages site.
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - name: Build static export
         run: pnpm build:static
