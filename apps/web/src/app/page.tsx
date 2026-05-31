@@ -1,119 +1,97 @@
-import { AccessibilityPanel } from "@/components/AccessibilityPanel";
-import { AssistPanel } from "@/components/AssistPanel";
+"use client";
+
 import { ColorWheel } from "@/components/ColorWheel";
 import { Controls } from "@/components/Controls";
-import { DesignBriefCard } from "@/components/DesignBriefCard";
-import { ExportPanel } from "@/components/ExportPanel";
-import { ModeToggle } from "@/components/ModeToggle";
 import { PaletteGrid } from "@/components/PaletteGrid";
+import { AccessibilityPanel } from "@/components/AccessibilityPanel";
+import { ExportPanel } from "@/components/ExportPanel";
 import { PreviewPanel } from "@/components/PreviewPanel";
+import { AssistPanel } from "@/components/AssistPanel";
+import { DesignBriefCard } from "@/components/DesignBriefCard";
 import { ThemeSync } from "@/components/ThemeSync";
-
-/**
- * A titled block within a plane. Surface level is set by the parent plane via
- * the `surface` prop so the rail / canvas / sidebar read as distinct planes
- * rather than one flat monoculture.
- */
-function Block({
-  title,
-  children,
-  surface = "surface-0",
-  className = "",
-}: {
-  title?: string;
-  children: React.ReactNode;
-  surface?: "surface-0" | "surface-1";
-  className?: string;
-}) {
-  // Literal classes so Tailwind's JIT scanner picks them up.
-  const surfaceClass = surface === "surface-1" ? "bg-surface-1" : "bg-surface-0";
-  return (
-    <section className={`rounded-2xl border border-line ${surfaceClass} p-5 ${className}`}>
-      {title && (
-        <h2 className="mb-4 font-display text-sm font-medium text-ink-hi">
-          {title}
-        </h2>
-      )}
-      {children}
-    </section>
-  );
-}
+import { ModeToggle } from "@/components/ModeToggle";
+import { Panel } from "@/components/ui";
 
 export default function Page() {
   return (
-    <div className="flex min-h-screen flex-col">
+    <main className="mx-auto max-w-[1480px] px-6 py-6">
       <ThemeSync />
+      <Header />
 
-      {/* Top bar — single-hue logomark + wordmark + tagline, mode toggle right. */}
-      <header className="flex flex-wrap items-center gap-4 border-b border-line bg-surface-0 px-4 py-4 lg:px-8">
-        <div className="flex items-center gap-3">
-          <Logomark />
-          <div>
-            <h1 className="font-display text-xl font-medium tracking-tight text-ink-hi">
-              Chroma
-            </h1>
-            <p className="text-xs text-ink-mid">
-              Deterministic OKLCH · role-based palettes · APCA + WCAG
-            </p>
-          </div>
-        </div>
-        <div className="ml-auto">
-          <ModeToggle />
-        </div>
-      </header>
+      <div className="mt-6 grid grid-cols-1 gap-5 xl:grid-cols-12">
+        {/* Left rail — Create */}
+        <section className="xl:col-span-3 space-y-5">
+          <RailLabel>Create</RailLabel>
+          <Panel>
+            <ColorWheel />
+          </Panel>
+          <Panel>
+            <Controls />
+          </Panel>
+        </section>
 
-      {/* Workbench — instrument rail · canvas · sidebar. Stacks <1024px. */}
-      <div className="flex flex-1 flex-col gap-6 p-4 lg:flex-row lg:gap-6 lg:p-6">
-        {/* Left instrument rail — the ColorWheel is the hero. */}
-        <aside className="flex w-full flex-col gap-4 lg:w-[360px] lg:shrink-0">
-          <Block surface="surface-0" className="flex flex-col gap-6">
-            <div className="flex flex-col gap-2">
-              <h2 className="font-display text-sm font-medium text-ink-hi">
-                Instrument
-              </h2>
-              <div className="py-2">
-                <ColorWheel />
-              </div>
-            </div>
-            <div className="border-t border-line pt-5">
-              <Controls />
-            </div>
-          </Block>
-          <Block title="Export tokens" surface="surface-0">
-            <ExportPanel />
-          </Block>
-        </aside>
-
-        {/* Center canvas — the artifact being designed. Dominant. */}
-        <main className="flex min-w-0 flex-1 flex-col gap-4">
-          <DesignBriefCard />
-          <Block title="Palette" surface="surface-1">
+        {/* Center — the palette stage (hero) */}
+        <section className="xl:col-span-6 space-y-5">
+          <RailLabel>Palette</RailLabel>
+          <Panel variant="hero">
             <PaletteGrid />
-          </Block>
-          <Block title="Live preview" surface="surface-1">
+          </Panel>
+          <Panel>
             <PreviewPanel />
-          </Block>
-        </main>
+          </Panel>
+        </section>
 
-        {/* Right sidebar — assistant over accessibility. */}
-        <aside className="flex w-full flex-col gap-4 lg:w-[340px] lg:shrink-0">
-          <Block title="Assistant" surface="surface-0">
-            <AssistPanel />
-          </Block>
-          <Block title="Accessibility" surface="surface-0">
+        {/* Right rail — Refine & Ship */}
+        <section className="xl:col-span-3 space-y-5">
+          <RailLabel>Refine &amp; Ship</RailLabel>
+          <Panel>
             <AccessibilityPanel />
-          </Block>
-        </aside>
+          </Panel>
+          <Panel>
+            <ExportPanel />
+          </Panel>
+          <Panel>
+            <DesignBriefCard />
+          </Panel>
+          <Panel>
+            <AssistPanel />
+          </Panel>
+        </section>
       </div>
-    </div>
+    </main>
   );
 }
 
-/** Single-hue logomark — a clean geometric mark in the live --accent token. */
-function Logomark() {
+function RailLabel({ children }: { children: React.ReactNode }) {
   return (
-    <span className="grid h-9 w-9 place-items-center rounded-xl bg-surface-1 ring-1 ring-line">
-      <span className="block h-4 w-4 rounded-full bg-accent" />
-    </span>
+    <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-3)]">
+      {children}
+    </p>
+  );
+}
+
+function Header() {
+  return (
+    <header className="flex items-center justify-between gap-4">
+      <div className="flex items-center gap-3">
+        <div
+          className="chroma-spectrum-fill flex h-10 w-10 items-center justify-center rounded-xl text-white font-bold text-lg shadow-2"
+          aria-hidden
+        >
+          C
+        </div>
+        <div>
+          <h1 className="text-xl font-bold leading-tight tracking-tight">
+            <span className="chroma-spectrum-text">Chroma</span>
+          </h1>
+          <p className="text-[12px] text-[var(--text-2)] leading-tight">
+            Accessible OKLCH palettes — harmonies, ramps, APCA + WCAG
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <ModeToggle />
+      </div>
+    </header>
   );
 }
