@@ -22,10 +22,9 @@ export function ThemeSync() {
     const theme = mode === "light" ? palette.light : palette.dark;
     if (theme?.roles?.primary) {
       root.style.setProperty("--palette-primary", theme.roles.primary.hex);
-      root.style.setProperty(
-        "--palette-on-primary",
-        theme.roles.primary.on ?? "#ffffff",
-      );
+    }
+    if (theme?.on?.primary) {
+      root.style.setProperty("--palette-on-primary", theme.on.primary.hex);
     }
   }, [mode, palette]);
 
