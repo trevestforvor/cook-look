@@ -311,6 +311,40 @@ The palette lives in a single store (`apps/web/src/lib/store.ts`) that is the
 **single source of truth** — the wheel, every panel, and the agent all read from
 and write to it through the same engine output.
 
+## Deployment
+
+The editor is fully client-side — harmonies, palette generation, accessibility
+audits, and token export all run in the browser from the pure engine — so it can
+be published as a **static site at no cost**. Only the AI assistant needs a
+server (the `/api/agent` route holds the LLM keys and runs the agent loop).
+
+### GitHub Pages (free)
+
+A workflow at `.github/workflows/deploy-pages.yml` builds a static export and
+publishes it. One-time setup: in repo **Settings → Pages**, set
+**Source = "GitHub Actions"**. Pushing to `main` (or running the workflow
+manually) then deploys to `https://<owner>.github.io/cook-look/`. The Assist
+panel shows a "not available in this build" notice; every other feature works.
+
+Build the static export locally with:
+
+```bash
+pnpm build:static   # → apps/web/out/
+```
+
+This sets `STATIC_EXPORT=1` (enables `output: "export"`, the `/cook-look`
+base path, and unoptimized images) and `NEXT_PUBLIC_AGENT_ENABLED=false`. It
+temporarily moves `apps/web/src/app/api` aside during the build (Next can't
+statically export a dynamic route handler) and restores it afterward, so the
+route stays available for server deployments. Serving from a user/org page or
+custom domain? Override the prefix with `BASE_PATH=""`.
+
+### With the AI assistant
+
+To keep the assistant, deploy to any host with a Node.js runtime (e.g. Vercel,
+or a static frontend on Cloudflare Pages with the agent ported to a Pages
+Function) and set the LLM keys from `.env.example` server-side.
+
 ## Testing
 
 `pnpm test` runs **130 tests** across both packages with no AI/network involved.
