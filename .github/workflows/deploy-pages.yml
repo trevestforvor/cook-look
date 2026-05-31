@@ -1,0 +1,60 @@
+name: Deploy editor to GitHub Pages
+
+# Builds a static export of the Chroma editor and publishes it to GitHub Pages.
+# The AI assistant is disabled in this build (it needs a server); every other
+# feature runs fully client-side.
+#
+# One-time setup: repo Settings → Pages → Build and deployment → Source =
+# "GitHub Actions". The site will be served at
+# https://<owner>.github.io/cook-look/
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Allow the workflow to publish to Pages via OIDC.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one concurrent deploy; don't cancel an in-progress one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build static export
+        run: pnpm build:static
+
+      - name: Disable Jekyll (preserve _next assets)
+        run: touch apps/web/out/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/web/out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

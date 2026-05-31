@@ -9,6 +9,9 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 
+# transient: static-export build moves the api route here and restores it
+.api-stash/
+
 # env
 .env
 .env.local

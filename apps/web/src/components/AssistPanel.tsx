@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useChroma } from "@/lib/store";
+import { AGENT_ENABLED } from "@/lib/config";
 
 const SUGGESTIONS = [
   "Design a calm fintech palette from our brand blue (#2f6df6).",
@@ -20,6 +21,36 @@ export function AssistPanel() {
 
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  if (!AGENT_ENABLED) {
+    return (
+      <div className="flex h-full flex-col gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-neutral-100">Design assistant</h3>
+          <p className="text-xs text-neutral-400">
+            Steers the engine via tool calls — it never writes color values itself.
+          </p>
+        </div>
+        <div className="rounded-lg border border-neutral-800 bg-neutral-950/50 p-3 text-xs leading-relaxed text-neutral-400">
+          <p className="mb-2 font-medium text-neutral-300">
+            Not available in this build.
+          </p>
+          <p>
+            The AI assistant needs a server-side endpoint (it holds the LLM API
+            keys), which isn&apos;t part of this static deployment. Everything
+            else in the editor — harmonies, palette generation, accessibility
+            audits, and token export — works fully here.
+          </p>
+          <p className="mt-2">
+            To enable it, run the app with a server (
+            <code className="font-mono text-neutral-300">pnpm dev</code>) or
+            deploy a host that supports the{" "}
+            <code className="font-mono text-neutral-300">/api/agent</code> route.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
