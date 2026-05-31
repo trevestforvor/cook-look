@@ -6,7 +6,7 @@
  * the light and dark ends, where high-chroma colors fall out of gamut and read
  * as garish. Every step is gamut-mapped on resolution.
  */
-import { maxChroma, oklch, resolveSwatch } from "./color.js";
+import { maxChroma, oklch, resolveGamutClamped, resolveSwatch } from "./color.js";
 import { RAMP_STEPS, type RampStep, type TonalRamp } from "./types.js";
 
 /** Perceptual lightness target per ramp step (OKLCH L, 0…1). */
@@ -65,12 +65,7 @@ export function buildRamp(hue: number, chroma: number): TonalRamp {
   const steps = {} as Record<RampStep, ReturnType<typeof resolveSwatch>>;
   for (const step of RAMP_STEPS) {
     const l = LIGHTNESS_TARGETS[step];
-    const target = chroma * CHROMA_ENVELOPE[step];
-    // Stay just inside the gamut boundary so the ramp keeps as much chroma as
-    // each lightness can actually display.
-    const ceiling = gamutCeiling(l, hue);
-    const c = Math.min(target, ceiling);
-    steps[step] = resolveSwatch(oklch(l, c, hue));
+    steps[step] = resolveGamutClamped(l, chroma * CHROMA_ENVELOPE[step], hue);
   }
   return { steps };
 }

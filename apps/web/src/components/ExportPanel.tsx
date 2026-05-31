@@ -51,16 +51,19 @@ export function ExportPanel() {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <div className="flex gap-1">
+      <div className="flex items-center justify-between gap-2">
+        {/* Tab buttons — min 36px height for touch targets */}
+        <div role="tablist" aria-label="Export format" className="flex gap-1">
           {TABS.map((t) => (
             <button
               key={t.id}
+              role="tab"
+              aria-selected={tab === t.id}
               onClick={() => setTab(t.id)}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+              className={`btn-press min-h-[36px] rounded-md px-2.5 py-1 text-xs font-medium transition focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface-0 ${
                 tab === t.id
-                  ? "bg-neutral-100 text-neutral-900"
-                  : "text-neutral-400 hover:text-neutral-200"
+                  ? "bg-ink-hi text-bg"
+                  : "text-ink-mid hover:text-ink-hi"
               }`}
             >
               {t.label}
@@ -70,19 +73,21 @@ export function ExportPanel() {
         <div className="flex gap-1.5">
           <button
             onClick={copy}
-            className="rounded-md border border-neutral-700 px-2.5 py-1 text-xs text-neutral-200 hover:bg-neutral-800"
+            aria-label={copied ? "Copied to clipboard" : "Copy to clipboard"}
+            className="btn-press min-h-[36px] rounded-md border border-line px-2.5 py-1 text-xs text-ink-mid transition hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface-0"
           >
             {copied ? "Copied!" : "Copy"}
           </button>
           <button
             onClick={download}
-            className="rounded-md border border-neutral-700 px-2.5 py-1 text-xs text-neutral-200 hover:bg-neutral-800"
+            aria-label={`Download ${active.label}`}
+            className="btn-press min-h-[36px] rounded-md border border-line px-2.5 py-1 text-xs text-ink-mid transition hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface-0"
           >
             Download
           </button>
         </div>
       </div>
-      <pre className="max-h-72 overflow-auto rounded-lg border border-neutral-800 bg-neutral-950 p-3 font-mono text-[11px] leading-relaxed text-neutral-300">
+      <pre className="max-h-72 overflow-auto rounded-lg border border-line bg-surface-1 p-3 font-mono text-xs leading-relaxed text-ink-mid">
         {content}
       </pre>
     </div>

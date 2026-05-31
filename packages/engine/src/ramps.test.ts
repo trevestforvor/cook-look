@@ -22,8 +22,17 @@ describe("buildRamp", () => {
   it("every step is in sRGB gamut (ramp hugs the boundary)", () => {
     for (const step of RAMP_STEPS) {
       expect(isInGamut(ramp.steps[step].oklch)).toBe(true);
-      expect(ramp.steps[step].clamped).toBe(false);
     }
+  });
+
+  it("flags steps whose intended chroma the gamut compressed", () => {
+    // buildRamp now reports honest clamping: where the intended chroma
+    // (chroma * envelope) exceeds what the gamut allows at that lightness/hue,
+    // the realized swatch is reduced and `clamped` is true. The hue 256 / 0.16
+    // ramp pushes its mid tones past the blue gamut boundary, so at least one
+    // step is legitimately clamped while every step stays in gamut.
+    const anyClamped = RAMP_STEPS.some((step) => ramp.steps[step].clamped);
+    expect(anyClamped).toBe(true);
   });
 
   it("peak chroma sits in the mid tones, not the extremes", () => {
