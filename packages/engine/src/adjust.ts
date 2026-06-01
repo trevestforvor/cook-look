@@ -5,7 +5,7 @@
  * saturation along OKLCH C, and temperature as a fractional rotation of hue
  * toward a warm (~60°) or cool (~250°) anchor along the shortest arc.
  */
-import { clamp, normalizeHue, oklch, resolveSwatch } from "./color.js";
+import { clamp, maxChroma, normalizeHue, oklch, resolveSwatch } from "./color.js";
 import { buildTheme } from "./palette.js";
 import type {
   AdjustIntent,
@@ -85,6 +85,42 @@ const ADJUSTABLE_FAMILIES: readonly RampRole[] = [
 ];
 
 /**
+ * Saturation/temperature deltas land far weaker than lightness at the same
+ * `amount` (a 0.2 chroma multiplier is a subtle nudge; a 0.2 lightness shift is
+ * dramatic). Scale them up so a single click reads as a real, deliberate step.
+ */
+const SATURATION_GAIN = 1.5;
+
+/** Families that follow the shared brand lightness (so vibrant can cusp-shift them). */
+const BRAND_CONTAINER_FAMILIES: readonly RampRole[] = ["secondary", "accent"];
+
+/**
+ * Lightness (0…1) that maximizes the sRGB-reachable chroma for a hue (the OKLCH
+ * "cusp"). Coarse scan then refine — cheap and deterministic. A gamut-capped
+ * family can only become MORE saturated by moving its lightness toward this.
+ */
+function cuspLightness(hue: number): number {
+  let bestL = 0.6;
+  let bestC = -1;
+  for (let l = 0.2; l <= 0.92; l += 0.02) {
+    const c = maxChroma(l, hue);
+    if (c > bestC) {
+      bestC = c;
+      bestL = l;
+    }
+  }
+  // Refine around the coarse winner.
+  for (let l = bestL - 0.02; l <= bestL + 0.02; l += 0.005) {
+    const c = maxChroma(l, hue);
+    if (c > bestC) {
+      bestC = c;
+      bestL = l;
+    }
+  }
+  return bestL;
+}
+
+/**
  * Apply an {@link AdjustIntent} to a WHOLE palette by transforming its seeds and
  * rebuilding both modes — so every brand, semantic, and neutral family moves
  * together (and ramps, on-colors, and containers stay coherent), not just the
@@ -117,14 +153,15 @@ export function adjustPalette(input: {
   else if (intent.lightness === "darker") baseL -= amount;
   baseL = clamp(baseL, 0, 1);
 
-  // Saturation scales each family's intended chroma multiplicatively, so the
-  // relative chroma relationships between families are preserved.
+  // Saturation scales each family's intended chroma multiplicatively (gained up
+  // so a click is a clear step), preserving the relative chroma relationships.
   const satFactor =
     intent.saturation === "more"
-      ? 1 + amount
+      ? 1 + amount * SATURATION_GAIN
       : intent.saturation === "less"
-        ? Math.max(0, 1 - amount)
+        ? Math.max(0, 1 - amount * SATURATION_GAIN)
         : 1;
+  const moreSaturated = intent.saturation === "more";
 
   // Temperature rotates every hue a fraction of the way to the warm/cool anchor.
   const rotate = (h: number): number => {
@@ -144,6 +181,30 @@ export function adjustPalette(input: {
     }
   }
 
+  // Vibrant on an already-vivid palette: secondary/accent render their main
+  // swatch at the shared brand lightness, where they may already be at the sRGB
+  // gamut ceiling — so raising their chroma ceiling does nothing visible. The
+  // only way to look MORE saturated there is to move that family's lightness
+  // toward its own hue's chroma cusp (which differs per hue). Do this only when
+  // the family is actually capped, and only proportionally to intensity, so a
+  // cohesive palette isn't pulled apart for no gain.
+  const nextMainL: Partial<Record<RampRole, number>> = { ...seeds.mainL };
+  if (moreSaturated) {
+    for (const family of BRAND_CONTAINER_FAMILIES) {
+      const hue = nextHues[family];
+      const startL = seeds.mainL?.[family] ?? seeds.base.l;
+      const capped = nextChroma[family] >= maxChroma(startL, hue) - 0.003;
+      if (capped) {
+        const cusp = cuspLightness(hue);
+        nextMainL[family] = clamp(startL + (cusp - startL) * amount, 0.05, 0.95);
+      }
+    }
+  } else if (intent.saturation === "less") {
+    // Muting no longer needs the cusp shift — drop any prior override so the
+    // family rejoins the cohesive shared lightness.
+    for (const family of BRAND_CONTAINER_FAMILIES) delete nextMainL[family];
+  }
+
   const nextBase: Oklch = {
     l: baseL,
     c: Math.max(0, seeds.base.c * satFactor),
@@ -155,6 +216,7 @@ export function adjustPalette(input: {
     base: nextBase,
     hues: nextHues,
     chroma: nextChroma,
+    mainL: Object.keys(nextMainL).length > 0 ? nextMainL : undefined,
   };
 
   return {

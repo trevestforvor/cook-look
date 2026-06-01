@@ -33,7 +33,7 @@ const CHIPS: readonly VariationChip[] = [
   { key: "cooler", label: "Cooler", intent: { temperature: "cooler" } },
 ] as const;
 
-const DEFAULT_INTENSITY = 0.2;
+const DEFAULT_INTENSITY = 0.4;
 
 export function VariationsPanel() {
   // Read the live role OKLCH values straight off the engine palette. The

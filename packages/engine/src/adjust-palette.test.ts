@@ -63,4 +63,30 @@ describe("adjustPalette", () => {
       expect(p1.light.roles[r].hex).toMatch(/^#[0-9a-f]{6}$/);
     }
   });
+
+  it("'more saturation' visibly moves a gamut-capped family via a cusp shift", () => {
+    // Vivid Violet 305 triadic: secondary (amber) + accent (teal) render at the
+    // shared brand lightness where they're already at the sRGB ceiling, so a
+    // chroma bump alone is invisible. The cusp lightness-shift must make them
+    // actually change, and record a per-family mainL override.
+    const p0 = generatePalette({
+      baseColor: { l: 0.648, c: 0.23, h: 305 },
+      harmony: "triadic",
+    });
+    const p1 = adjustPalette({ palette: p0, intent: { saturation: "more", amount: 0.4 } });
+    expect(p1.light.roles.secondary.hex).not.toBe(p0.light.roles.secondary.hex);
+    expect(p1.light.roles.accent.hex).not.toBe(p0.light.roles.accent.hex);
+    expect(p1.seeds.mainL).toBeDefined();
+  });
+
+  it("'less saturation' drops any per-family lightness override (rejoins cohesion)", () => {
+    const p0 = generatePalette({
+      baseColor: { l: 0.648, c: 0.23, h: 305 },
+      harmony: "triadic",
+    });
+    const vivid = adjustPalette({ palette: p0, intent: { saturation: "more", amount: 0.4 } });
+    expect(vivid.seeds.mainL).toBeDefined();
+    const muted = adjustPalette({ palette: vivid, intent: { saturation: "less", amount: 0.4 } });
+    expect(muted.seeds.mainL).toBeUndefined();
+  });
 });

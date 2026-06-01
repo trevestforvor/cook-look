@@ -222,8 +222,12 @@ export function buildTheme(seeds: PaletteSeeds, mode: ThemeMode): ThemePalette {
       // `shades` distinguishes families by value — keep its ramp-step stepping.
       roles[role] = ramps[role].steps[stepOverride];
     } else if ((CONTAINER_ROLES as readonly string[]).includes(role)) {
-      // secondary/accent: the harmony hue at the brand lightness.
-      roles[role] = resolveGamutClamped(brandMainL, seeds.chroma[role], seeds.hues[role]);
+      // secondary/accent: the harmony hue at the brand lightness — unless a
+      // per-family lightness override is set (light mode only; used by vibrant
+      // adjustment to reach a gamut-capped family's own chroma cusp).
+      const famL =
+        mode === "light" ? (seeds.mainL?.[role] ?? brandMainL) : brandMainL;
+      roles[role] = resolveGamutClamped(famL, seeds.chroma[role], seeds.hues[role]);
     } else {
       // neutral + semantic roles keep their fixed main ramp step.
       roles[role] = ramps[role].steps[mainStep];
