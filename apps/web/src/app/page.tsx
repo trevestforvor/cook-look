@@ -14,17 +14,29 @@ import { VariationsPanel } from "@/components/VariationsPanel";
 import { SmartSuggestionsPanel } from "@/components/SmartSuggestionsPanel";
 import { ThemeSync } from "@/components/ThemeSync";
 import { ModeToggle } from "@/components/ModeToggle";
+import { ProModeToggle } from "@/components/ProModeToggle";
 import { Panel } from "@/components/ui";
+import { useState } from "react";
+
+type MobileTab = "create" | "palette" | "refine";
 
 export default function Page() {
+  // Single-column phone layout shows one section at a time via sticky bottom
+  // tabs; on lg+ all three rails are visible and the tab state is ignored.
+  const [tab, setTab] = useState<MobileTab>("palette");
+
+  const show = (t: MobileTab) =>
+    // Below lg: only the active tab's section is shown. At lg+: always shown.
+    tab === t ? "block" : "hidden lg:block";
+
   return (
-    <main className="mx-auto max-w-[1480px] px-6 py-6">
+    <main className="mx-auto max-w-[1480px] px-4 pb-24 pt-6 sm:px-6 lg:pb-6">
       <ThemeSync />
       <Header />
 
       <div className="mt-6 grid grid-cols-1 gap-5 xl:grid-cols-12">
         {/* Left rail — Create */}
-        <section className="xl:col-span-3 space-y-5">
+        <section className={`${show("create")} xl:col-span-3 space-y-5`}>
           <RailLabel>Create</RailLabel>
           <Panel>
             <ColorWheel />
@@ -35,7 +47,7 @@ export default function Page() {
         </section>
 
         {/* Center — the palette stage (hero) */}
-        <section className="xl:col-span-6 space-y-5">
+        <section className={`${show("palette")} xl:col-span-6 space-y-5`}>
           <RailLabel>Palette</RailLabel>
           <Panel variant="hero">
             <div className="flex flex-col gap-5">
@@ -49,7 +61,7 @@ export default function Page() {
         </section>
 
         {/* Right rail — Refine & Ship */}
-        <section className="xl:col-span-3 space-y-5">
+        <section className={`${show("refine")} xl:col-span-3 space-y-5`}>
           <RailLabel>Refine &amp; Ship</RailLabel>
           <HarmonyCheckPanel />
           <VariationsPanel />
@@ -68,7 +80,48 @@ export default function Page() {
           </Panel>
         </section>
       </div>
+
+      <MobileTabs tab={tab} onTab={setTab} />
     </main>
+  );
+}
+
+/** Sticky bottom tab bar — phone/tablet only (hidden at lg+). */
+function MobileTabs({
+  tab,
+  onTab,
+}: {
+  tab: MobileTab;
+  onTab: (t: MobileTab) => void;
+}) {
+  const tabs: { id: MobileTab; label: string }[] = [
+    { id: "create", label: "Create" },
+    { id: "palette", label: "Palette" },
+    { id: "refine", label: "Refine" },
+  ];
+  return (
+    <nav
+      aria-label="Sections"
+      className="fixed inset-x-0 bottom-0 z-40 flex border-t border-[var(--border)] bg-[var(--surface-1)]/95 backdrop-blur lg:hidden"
+    >
+      {tabs.map((t) => {
+        const active = t.id === tab;
+        return (
+          <button
+            key={t.id}
+            onClick={() => onTab(t.id)}
+            aria-current={active ? "page" : undefined}
+            className={`flex-1 py-3 text-[13px] font-semibold transition-colors ${
+              active
+                ? "text-[var(--accent)]"
+                : "text-[var(--text-2)] hover:text-[var(--text)]"
+            }`}
+          >
+            {t.label}
+          </button>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -100,6 +153,7 @@ function Header() {
         </div>
       </div>
       <div className="flex items-center gap-3">
+        <ProModeToggle />
         <ModeToggle />
       </div>
     </header>

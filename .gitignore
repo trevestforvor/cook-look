@@ -31,3 +31,6 @@ coverage/
 
 # runtime lock
 .claude/scheduled_tasks.lock
+
+# extracted competitor bundle (analysis only, do not commit)
+.planning/fixer-beautified.js

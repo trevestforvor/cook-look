@@ -178,6 +178,8 @@ export interface ChromaState {
   customSwatches: CustomSwatch[];
   /** When true, the brand-family chroma ceiling is lifted to 0.5 (unrestricted gamut). */
   unrestrictedChroma: boolean;
+  /** When true, the UI reveals raw oklch()/APCA numbers (progressive disclosure). */
+  proMode: boolean;
 
   lockRole: (role: Role) => void;
   unlockRole: (role: Role) => void;
@@ -215,6 +217,10 @@ export interface ChromaState {
   remixPalette: () => void;
   /** Reorder the visible roles by light-theme swatch lightness or hue. */
   sortPalette: (by: "lightness" | "hue") => void;
+  /** Per-swatch fine-tune: freeze a role to an explicit OKLCH (L/C/H popover). */
+  setRoleColor: (role: Role, color: Oklch) => void;
+  /** Toggle Pro mode (reveal raw oklch()/APCA numbers across the UI). */
+  setProMode: (v: boolean) => void;
 
   // --- Part 2: AI design agent (drives the same palette state) ---
   brief: DesignBrief | null;
@@ -292,6 +298,7 @@ export const useChroma = create<ChromaState>((set, get) => ({
   roleOverrides: {},
   customSwatches: [],
   unrestrictedChroma: false,
+  proMode: false,
 
   setUnrestrictedChroma: (v) =>
     set((s) => ({
@@ -391,6 +398,31 @@ export const useChroma = create<ChromaState>((set, get) => ({
       return { visibleRoles: [...sorted, ...withoutSwatch] };
     });
   },
+
+  // Per-swatch fine-tune. Freezing the role (same mechanism as applyHarmonyFix /
+  // lockRole) is what makes the hand-picked color survive rebuilds — otherwise a
+  // later regeneration would overwrite it. The popover that calls this shows a
+  // lock badge so the freeze is visible to the user.
+  setRoleColor: (role, color) => {
+    set((s) => {
+      const roleOverrides: RoleOverrides = {
+        ...s.roleOverrides,
+        [role]: { light: color, dark: color },
+      };
+      return {
+        roleOverrides,
+        palette: build(
+          s.base,
+          s.harmony,
+          s.analogousSpan,
+          roleOverrides,
+          s.unrestrictedChroma,
+        ),
+      };
+    });
+  },
+
+  setProMode: (v) => set({ proMode: v }),
 
   lockRole: (role) =>
     set((s) => ({

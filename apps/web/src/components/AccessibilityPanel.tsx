@@ -10,9 +10,11 @@ export function AccessibilityPanel() {
   const mode = useChroma((s) => s.mode);
   const applyFix = useChroma((s) => s.applyFix);
   const lastFix = useChroma((s) => s.lastFix);
+  const proMode = useChroma((s) => s.proMode);
 
   const audit = useMemo(() => auditPalette({ palette }), [palette]);
   const modeAudit = audit[mode];
+  const failing = modeAudit.pairs.filter((p) => !p.apca.body).length;
 
   return (
     <div className="flex flex-col gap-3">
@@ -74,24 +76,41 @@ export function AccessibilityPanel() {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-lg border border-line">
-        <table className="w-full text-xs">
-          <thead className="bg-surface-1 text-ink-mid">
-            <tr>
-              <th className="px-2 py-1.5 text-left font-medium">Pairing</th>
-              <th className="px-2 py-1.5 text-right font-medium">APCA Lc</th>
-              <th className="px-2 py-1.5 text-right font-medium">WCAG</th>
-              <th className="px-2 py-1.5 text-center font-medium">AA</th>
-              <th className="px-2 py-1.5 text-center font-medium">AAA</th>
-            </tr>
-          </thead>
-          <tbody>
-            {modeAudit.pairs.map((pair) => (
-              <Row key={pair.label} pair={pair} />
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {/* Progressive disclosure: the dense per-pairing table is Pro-only. The
+          one-line summary below is always shown so novices get the verdict
+          without the floats; Pro mode reveals the full numbers. */}
+      {proMode ? (
+        <div className="overflow-hidden rounded-lg border border-line">
+          <table className="w-full text-xs">
+            <thead className="bg-surface-1 text-ink-mid">
+              <tr>
+                <th className="px-2 py-1.5 text-left font-medium">Pairing</th>
+                <th className="px-2 py-1.5 text-right font-medium">APCA Lc</th>
+                <th className="px-2 py-1.5 text-right font-medium">WCAG</th>
+                <th className="px-2 py-1.5 text-center font-medium">AA</th>
+                <th className="px-2 py-1.5 text-center font-medium">AAA</th>
+              </tr>
+            </thead>
+            <tbody>
+              {modeAudit.pairs.map((pair) => (
+                <Row key={pair.label} pair={pair} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-xs text-ink-mid">
+          {failing === 0 ? (
+            <>All {modeAudit.pairs.length} pairings pass body contrast.</>
+          ) : (
+            <>
+              <span style={{ color: "var(--warning)" }}>{failing}</span> of{" "}
+              {modeAudit.pairs.length} pairings below body contrast.
+            </>
+          )}{" "}
+          <span className="text-ink-low">Turn on Pro for the full table.</span>
+        </p>
+      )}
 
       {lastFix && lastFix.length > 0 && (
         <div className="rounded-lg border border-line bg-surface-1 p-2.5 text-xs">

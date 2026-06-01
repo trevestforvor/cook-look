@@ -15,6 +15,7 @@ import {
 import { useChroma, customSwatchColor } from "@/lib/store";
 import { ROLE_LAYERS, isRampRole } from "@/lib/roles";
 import { AddColorMenu } from "./AddColorMenu";
+import { SwatchTunePopover } from "./SwatchTunePopover";
 
 const ON_ROLES: readonly OnRole[] = [
   "primary",
@@ -160,10 +161,12 @@ function RoleCard({
   locked: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const [tuning, setTuning] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lockRole = useChroma((s) => s.lockRole);
   const unlockRole = useChroma((s) => s.unlockRole);
   const hideRole = useChroma((s) => s.hideRole);
+  const proMode = useChroma((s) => s.proMode);
 
   const copy = () => {
     navigator.clipboard.writeText(swatch.hex).catch(() => {});
@@ -192,6 +195,15 @@ function RoleCard({
             </span>
           )}
           <button
+            onClick={() => setTuning((t) => !t)}
+            aria-label={`Fine-tune ${role}`}
+            aria-expanded={tuning}
+            title="Fine-tune L/C/H"
+            className="rounded px-1 text-[12px] leading-none opacity-0 transition-opacity group-hover:opacity-70 hover:!opacity-100 focus-visible:opacity-100"
+          >
+            ⚙
+          </button>
+          <button
             onClick={() => (locked ? unlockRole(role) : lockRole(role))}
             aria-label={locked ? `Unlock ${role}` : `Lock ${role}`}
             aria-pressed={locked}
@@ -217,7 +229,20 @@ function RoleCard({
       >
         <div className="font-mono text-[11px] opacity-90">{copied ? "Copied!" : swatch.hex}</div>
         <div className="truncate text-[10px] opacity-75">{name}</div>
+        {proMode && (
+          <div className="mt-0.5 font-mono text-[9px] opacity-70">
+            oklch({Math.round(swatch.oklch.l * 100)}% {swatch.oklch.c.toFixed(3)}{" "}
+            {Math.round(swatch.oklch.h)})
+          </div>
+        )}
       </button>
+      {tuning && (
+        <SwatchTunePopover
+          role={role}
+          initial={swatch.oklch}
+          onClose={() => setTuning(false)}
+        />
+      )}
     </div>
   );
 }
