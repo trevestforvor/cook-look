@@ -1,63 +1,82 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { adjustPalette, type AdjustIntent } from "@chroma/engine";
+import { useEffect, useRef, useState } from "react";
+import { adjustPalette, type AdjustIntent, type Palette } from "@chroma/engine";
 import { Button, Panel, PanelHeader } from "@/components/ui";
 import { useChroma } from "@/lib/store";
 
 /**
- * VariationsPanel — reversible, palette-wide adjustments.
+ * VariationsPanel — reversible, palette-wide adjustments via three bipolar
+ * sliders (Muted↔Vibrant, Darker↔Lighter, Cooler↔Warmer), each centered at 0 =
+ * "your palette".
  *
- * Intended rail: the RIGHT rail (adjustments column beside the palette grid).
+ * Why sliders, not buttons: a button accumulator made it easy to slam an axis
+ * into its clamp and feel "stuck" (e.g. two Lighter clicks at high intensity →
+ * primary pinned at pure white, unrecoverable-feeling). A slider shows its
+ * position and you just drag back to center.
  *
- * How it stays reversible (the important part): the panel keeps a frozen
- * BASELINE palette plus a signed net amount per axis (saturation / lightness /
- * temperature). Every click recomputes the palette from the baseline by applying
- * the net intents — it never compounds on the already-adjusted palette. So
- * Muted→Vibrant returns to the baseline, and repeated Muted can't ratchet chroma
- * into an unrecoverable gray (the net is clamped). If the palette changes from
- * elsewhere (wheel, harmony, a fix), the baseline re-syncs and the nets reset.
+ * Why it stays safe: the panel keeps a frozen BASELINE palette and recomputes
+ * from it on every change by applying the net per-axis intents — it never
+ * compounds on the already-adjusted palette, so the baseline is preserved and
+ * every move is reversible. External edits (wheel, harmony, a fix) re-sync the
+ * baseline and recenter the sliders. The engine additionally clamps adjusted
+ * lightness to a usable band so primary can't be stranded at white/black.
  *
  * Color rule: every value comes from the engine ({@link adjustPalette}); the
- * 3-dot previews run the SAME path as a click, so preview matches result.
+ * preview dots run the SAME path as committing, so preview matches result.
  */
 
 type Axis = "sat" | "light" | "temp";
 
-type VariationChip = {
-  readonly key: string;
-  readonly label: string;
+interface AxisDef {
   readonly axis: Axis;
-  /** +1 nudges the axis up (vibrant/lighter/warmer); -1 down. */
-  readonly dir: 1 | -1;
-};
+  readonly label: string;
+  readonly low: string; // label at slider min (−1)
+  readonly high: string; // label at slider max (+1)
+  /** CSS gradient painted on the track (low → center → high). */
+  readonly track: string;
+}
 
-const CHIPS: readonly VariationChip[] = [
-  { key: "vibrant", label: "Vibrant", axis: "sat", dir: 1 },
-  { key: "muted", label: "Muted", axis: "sat", dir: -1 },
-  { key: "lighter", label: "Lighter", axis: "light", dir: 1 },
-  { key: "darker", label: "Darker", axis: "light", dir: -1 },
-  { key: "warmer", label: "Warmer", axis: "temp", dir: 1 },
-  { key: "cooler", label: "Cooler", axis: "temp", dir: -1 },
-] as const;
+// Max |amount| each slider end reaches. Saturation's negative side stays > 0 so
+// "fully muted" is a soft gray-ish, never a dead flat gray; lightness is modest
+// so the band clamp is rarely hit; temperature can rotate fully to the anchor.
+const AXIS_RANGE: Record<Axis, number> = { sat: 1.2, light: 0.45, temp: 1 };
 
-const DEFAULT_INTENSITY = 0.4;
+const AXES: readonly AxisDef[] = [
+  {
+    axis: "sat",
+    label: "Saturation",
+    low: "Muted",
+    high: "Vibrant",
+    track:
+      "linear-gradient(to right, var(--surface-3), var(--palette-primary, var(--accent)))",
+  },
+  {
+    axis: "light",
+    label: "Lightness",
+    low: "Darker",
+    high: "Lighter",
+    track: "linear-gradient(to right, #14121a, #8c86a8, #f4f2fb)",
+  },
+  {
+    axis: "temp",
+    label: "Temperature",
+    low: "Cooler",
+    high: "Warmer",
+    track:
+      "linear-gradient(to right, oklch(0.7 0.16 250), oklch(0.85 0.04 200), oklch(0.78 0.16 60))",
+  },
+];
 
 type Net = { sat: number; light: number; temp: number };
 const ZERO: Net = { sat: 0, light: 0, temp: 0 };
 
-// Per-axis clamps on the accumulated net. The lower saturation bound keeps Muted
-// from driving chroma to gray (factor = 1 − amount·1.5, so −0.5 → 0.25, never 0).
-const CLAMP: Record<Axis, [number, number]> = {
-  sat: [-0.5, 2],
-  light: [-0.6, 0.6],
-  temp: [-1, 1],
-};
+/** Slider position (−1…1) → signed amount for that axis. */
+function posToAmount(axis: Axis, pos: number): number {
+  return pos * AXIS_RANGE[axis];
+}
 
-const clampAxis = (axis: Axis, v: number) =>
-  Math.min(CLAMP[axis][1], Math.max(CLAMP[axis][0], v));
-
-/** Turn the signed net into one intent per non-zero axis (applied from baseline). */
+/** The signed net (in amount units) → one intent per non-zero axis. */
 function netToIntents(net: Net): AdjustIntent[] {
   const out: AdjustIntent[] = [];
   if (net.sat !== 0)
@@ -69,146 +88,94 @@ function netToIntents(net: Net): AdjustIntent[] {
   return out;
 }
 
+function buildFromNet(baseline: Palette, net: Net): Palette {
+  let p = baseline;
+  for (const intent of netToIntents(net)) p = adjustPalette({ palette: p, intent });
+  return p;
+}
+
 export function VariationsPanel() {
   const livePalette = useChroma((s) => s.palette);
   const applyVariations = useChroma((s) => s.applyVariations);
 
-  const [intensity, setIntensity] = useState(DEFAULT_INTENSITY);
-  const [net, setNet] = useState<Net>(ZERO);
-  const [activeKey, setActiveKey] = useState<string | null>(null);
+  // Slider positions, −1…1, 0 = baseline. Net amounts are derived from these.
+  const [pos, setPos] = useState<Net>(ZERO);
 
-  // The baseline we vary FROM, and the last palette WE produced (to tell our own
-  // updates apart from external edits).
   const baselineRef = useRef(livePalette);
   const lastProducedRef = useRef(livePalette);
 
-  // External change (wheel / harmony / fix / suggestion) → re-baseline + reset.
+  // External change (wheel / harmony / fix / suggestion / fine-tune) → adopt it
+  // as the new baseline and recenter the sliders.
   useEffect(() => {
     if (livePalette !== lastProducedRef.current) {
       baselineRef.current = livePalette;
       lastProducedRef.current = livePalette;
-      setNet(ZERO);
-      setActiveKey(null);
+      setPos(ZERO);
     }
   }, [livePalette]);
 
-  const sliderId = useId();
-  const pct = Math.round(intensity * 100);
+  const netFromPos = (p: Net): Net => ({
+    sat: posToAmount("sat", p.sat),
+    light: posToAmount("light", p.light),
+    temp: posToAmount("temp", p.temp),
+  });
 
-  const apply = (next: Net, key: string | null) => {
-    applyVariations(baselineRef.current, netToIntents(next));
+  const commit = (nextPos: Net) => {
+    applyVariations(baselineRef.current, netToIntents(netFromPos(nextPos)));
     lastProducedRef.current = useChroma.getState().palette;
-    setNet(next);
-    setActiveKey(key);
+    setPos(nextPos);
   };
 
-  const handleChip = (chip: VariationChip) => {
-    const cur = net[chip.axis];
-    const next = clampAxis(chip.axis, cur + chip.dir * intensity);
-    apply({ ...net, [chip.axis]: next }, chip.key);
+  const onAxis = (axis: Axis, value: number) => commit({ ...pos, [axis]: value });
+  const reset = () => commit(ZERO);
+
+  const dirty = pos.sat !== 0 || pos.light !== 0 || pos.temp !== 0;
+
+  // Preview dots at each slider end, from the baseline (so they read as "what
+  // this direction does"). Same engine path as commit.
+  const endPreview = (axis: Axis, dir: 1 | -1): string[] => {
+    const p = buildFromNet(baselineRef.current, {
+      ...netFromPos(pos),
+      [axis]: posToAmount(axis, dir),
+    });
+    return [
+      p.light.roles.primary.hex,
+      p.light.roles.secondary.hex,
+      p.light.roles.accent.hex,
+    ];
   };
-
-  const reset = () => apply(ZERO, null);
-  const dirty = net.sat !== 0 || net.light !== 0 || net.temp !== 0;
-
-  // 3-dot previews: run the SAME adjustPalette path a click would, from the
-  // baseline at the CURRENT net plus one more step of this chip, then read
-  // primary/secondary/accent. Preview therefore matches the click result.
-  const previews = useMemo(() => {
-    const base = baselineRef.current;
-    const map: Record<string, string[]> = {};
-    for (const chip of CHIPS) {
-      const cur = net[chip.axis];
-      const next = clampAxis(chip.axis, cur + chip.dir * intensity);
-      const p = applyVariationsPreview(base, { ...net, [chip.axis]: next });
-      map[chip.key] = [
-        p.light.roles.primary.hex,
-        p.light.roles.secondary.hex,
-        p.light.roles.accent.hex,
-      ];
-    }
-    return map;
-    // livePalette in deps so previews refresh after re-baseline.
-  }, [net, intensity, livePalette]);
 
   return (
     <Panel>
       <PanelHeader title="Variations" subtitle="Adjust the whole palette" />
 
       <div className="flex flex-col gap-4">
-        <div
-          role="group"
-          aria-label="Palette variations"
-          className="grid grid-cols-2 gap-2"
-        >
-          {CHIPS.map((chip) => {
-            const dots = previews[chip.key] ?? [];
-            // Active = this axis is currently pushed in this chip's direction.
-            const axisNet = net[chip.axis];
-            const isActive =
-              activeKey === chip.key ||
-              (axisNet !== 0 && Math.sign(axisNet) === chip.dir);
-            return (
-              <button
-                key={chip.key}
-                type="button"
-                onClick={() => handleChip(chip)}
-                aria-pressed={isActive}
-                className={[
-                  "group flex items-center justify-between gap-2 rounded-md",
-                  "border bg-[var(--surface-2)] px-3 py-2 text-left text-sm",
-                  "text-[var(--text)] transition-colors",
-                  "hover:bg-[var(--surface-3)]",
-                  "focus-visible:outline-none focus-visible:ring-2",
-                  "focus-visible:ring-[var(--accent)] focus-visible:ring-offset-1",
-                  "focus-visible:ring-offset-[var(--surface-1)]",
-                  "motion-reduce:transition-none",
-                  isActive
-                    ? "border-[var(--accent)] ring-1 ring-[var(--accent)]"
-                    : "border-[var(--border)]",
-                ].join(" ")}
-              >
-                <span className="font-medium">{chip.label}</span>
-                <span
-                  className="flex shrink-0 items-center gap-1"
-                  aria-hidden="true"
-                >
-                  {dots.map((hex, i) => (
-                    <span
-                      key={i}
-                      className="block h-2.5 w-2.5 rounded-full ring-1 ring-black/10"
-                      style={{ backgroundColor: hex }}
-                    />
-                  ))}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <label
-            htmlFor={sliderId}
-            className="flex items-center justify-between text-xs text-[var(--text-2)]"
-          >
-            <span>Intensity</span>
-            <span className="tabular-nums text-[var(--text)]" aria-hidden="true">
-              {pct}%
-            </span>
-          </label>
-          <input
-            id={sliderId}
-            type="range"
-            className="chroma-slider"
-            min={0}
-            max={1}
-            step={0.05}
-            value={intensity}
-            onChange={(e) => setIntensity(Number(e.target.value))}
-            aria-label="Variation intensity"
-            aria-valuetext={`${pct} percent`}
-          />
-        </div>
+        {AXES.map((a) => (
+          <div key={a.axis} className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <EndLabel text={a.low} dots={endPreview(a.axis, -1)} />
+              <EndLabel text={a.high} dots={endPreview(a.axis, 1)} alignEnd />
+            </div>
+            <input
+              type="range"
+              className="chroma-slider"
+              min={-1}
+              max={1}
+              step={0.02}
+              value={pos[a.axis]}
+              onChange={(e) => onAxis(a.axis, Number(e.target.value))}
+              aria-label={`${a.label}: ${a.low} to ${a.high}`}
+              aria-valuetext={
+                pos[a.axis] === 0
+                  ? "your palette"
+                  : `${Math.round(Math.abs(pos[a.axis]) * 100)}% ${
+                      pos[a.axis] > 0 ? a.high : a.low
+                    }`
+              }
+              style={{ ["--track-bg" as string]: a.track }}
+            />
+          </div>
+        ))}
 
         <div className="flex items-center justify-between">
           <span className="text-xs text-[var(--text-3)]">
@@ -229,20 +196,33 @@ export function VariationsPanel() {
   );
 }
 
-/**
- * Pure preview of what the net would produce, mirroring the store's
- * applyVariations loop (baseline → adjustPalette per intent). Kept here so the
- * 3-dot previews are exactly the click result, with no store mutation.
- */
-function applyVariationsPreview(
-  baseline: Parameters<typeof adjustPalette>[0]["palette"],
-  net: Net,
-) {
-  let p = baseline;
-  for (const intent of netToIntents(net)) {
-    p = adjustPalette({ palette: p, intent });
-  }
-  return p;
+function EndLabel({
+  text,
+  dots,
+  alignEnd = false,
+}: {
+  text: string;
+  dots: string[];
+  alignEnd?: boolean;
+}) {
+  return (
+    <span
+      className={`flex items-center gap-1.5 text-[var(--text-2)] ${
+        alignEnd ? "flex-row-reverse" : ""
+      }`}
+    >
+      <span className="font-medium">{text}</span>
+      <span className="flex items-center gap-0.5" aria-hidden="true">
+        {dots.map((hex, i) => (
+          <span
+            key={i}
+            className="block h-2 w-2 rounded-full ring-1 ring-black/10"
+            style={{ backgroundColor: hex }}
+          />
+        ))}
+      </span>
+    </span>
+  );
 }
 
 export default VariationsPanel;

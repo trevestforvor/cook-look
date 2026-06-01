@@ -64,6 +64,18 @@ describe("adjustPalette", () => {
     }
   });
 
+  it("clamps lightness to a usable band — primary never becomes pure white/black", () => {
+    const p0 = mk();
+    // Extreme lighten then extreme darken; primary must stay off the rails so it
+    // can always move back (white can't get lighter, etc.).
+    const lighter = adjustPalette({ palette: p0, intent: { lightness: "lighter", amount: 1 } });
+    const darker = adjustPalette({ palette: p0, intent: { lightness: "darker", amount: 1 } });
+    expect(lighter.seeds.base.l).toBeLessThanOrEqual(0.92);
+    expect(lighter.light.roles.primary.hex).not.toBe("#ffffff");
+    expect(darker.seeds.base.l).toBeGreaterThanOrEqual(0.2);
+    expect(darker.light.roles.primary.hex).not.toBe("#000000");
+  });
+
   it("'more saturation' visibly moves a gamut-capped family via a cusp shift", () => {
     // Vivid Violet 305 triadic: secondary (amber) + accent (teal) render at the
     // shared brand lightness where they're already at the sRGB ceiling, so a

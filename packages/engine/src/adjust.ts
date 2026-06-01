@@ -147,11 +147,15 @@ export function adjustPalette(input: {
   const amount = intent.amount ?? 0.1;
   const seeds = palette.seeds;
 
-  // Base lightness drives the brand families' main-swatch lightness.
+  // Base lightness drives the brand families' main-swatch lightness. Clamp to a
+  // USABLE band, not [0,1]: primary IS the base color, so letting it reach pure
+  // white/black would strand it there (white can't get lighter) and collapse the
+  // brand families to #ffffff/#000000. Keeping it in [0.2, 0.92] means lightness
+  // adjustments always stay reversible and never produce a dead all-white set.
   let baseL = seeds.base.l;
   if (intent.lightness === "lighter") baseL += amount;
   else if (intent.lightness === "darker") baseL -= amount;
-  baseL = clamp(baseL, 0, 1);
+  baseL = clamp(baseL, 0.2, 0.92);
 
   // Saturation scales each family's intended chroma multiplicatively (gained up
   // so a click is a clear step), preserving the relative chroma relationships.
