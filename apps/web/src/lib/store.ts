@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import {
   adjustColor,
+  adjustPalette,
   clamp,
   fixContrast,
   generatePalette,
@@ -358,8 +359,17 @@ export const useChroma = create<ChromaState>((set, get) => ({
   clearFix: () => set({ lastFix: null }),
 
   applyAdjust: (intent) => {
-    const newBase = adjustColor({ color: get().base, intent }).after.oklch;
-    get().setBase(newBase);
+    set((s) => {
+      // Adjust the WHOLE palette (every family's seed), not just the base, so
+      // all unlocked roles move together. Locked roles are then re-frozen on
+      // top via applyOverrides, so a Variation never disturbs a pinned color.
+      const adjusted = adjustPalette({ palette: s.palette, intent });
+      return {
+        base: adjusted.baseColor,
+        palette: applyOverrides(adjusted, s.roleOverrides),
+        lastFix: null,
+      };
+    });
   },
 
   applyHarmonyFix: (role, suggested) => {

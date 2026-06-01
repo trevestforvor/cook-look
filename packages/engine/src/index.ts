@@ -52,7 +52,7 @@ export { buildRamp, buildNeutralRamp, rampLightness } from "./ramps.js";
 export { generatePalette, buildTheme, buildSeeds } from "./palette.js";
 
 // Adjustment.
-export { adjustColor } from "./adjust.js";
+export { adjustColor, adjustPalette } from "./adjust.js";
 
 // Contrast repair.
 export { fixContrast } from "./contrast-fix.js";
