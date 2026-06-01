@@ -186,40 +186,42 @@ function RoleCard({
         } as React.CSSProperties
       }
     >
-      <div className="flex items-center justify-between gap-1">
-        <span className="text-xs font-semibold capitalize">{role}</span>
-        <div className="flex items-center gap-1">
-          {swatch.clamped && (
-            <span title="Gamut-mapped to fit sRGB" className="rounded bg-black/20 px-1 text-[9px] uppercase">
-              clamp
-            </span>
-          )}
-          <button
-            onClick={() => setTuning((t) => !t)}
-            aria-label={`Fine-tune ${role}`}
-            aria-expanded={tuning}
-            title="Fine-tune L/C/H"
-            className="rounded px-1 text-[12px] leading-none opacity-0 transition-opacity group-hover:opacity-70 hover:!opacity-100 focus-visible:opacity-100"
-          >
-            ⚙
-          </button>
-          <button
+      {/* Name gets its own full-width row so it never gets cut off; the controls
+          sit on a dedicated row below it. */}
+      <div className="flex flex-col gap-1">
+        <span
+          className="truncate text-xs font-semibold capitalize"
+          title={swatch.clamped ? `${role} — gamut-mapped to fit sRGB` : role}
+        >
+          {role}
+        </span>
+        <div className="flex items-center gap-1.5">
+          <IconBtn
             onClick={() => (locked ? unlockRole(role) : lockRole(role))}
-            aria-label={locked ? `Unlock ${role}` : `Lock ${role}`}
-            aria-pressed={locked}
+            label={locked ? `Unlock ${role}` : `Lock ${role}`}
+            pressed={locked}
             title={locked ? "Locked — auto-updates won't change this" : "Lock this color"}
-            className="rounded px-1 text-[11px] leading-none opacity-70 hover:opacity-100 focus-visible:opacity-100"
+            className={locked ? "opacity-90" : "opacity-60 hover:opacity-100"}
           >
-            {locked ? "🔒" : "🔓"}
-          </button>
-          <button
+            <LockIcon open={!locked} />
+          </IconBtn>
+          <IconBtn
+            onClick={() => setTuning((t) => !t)}
+            label={`Fine-tune ${role}`}
+            expanded={tuning}
+            title="Fine-tune L/C/H"
+            className="opacity-0 transition-opacity group-hover:opacity-60 hover:!opacity-100 focus-visible:opacity-100"
+          >
+            <TuneIcon />
+          </IconBtn>
+          <IconBtn
             onClick={() => hideRole(role)}
-            aria-label={`Remove ${role}`}
+            label={`Remove ${role}`}
             title="Remove from palette"
-            className="rounded px-1 text-[12px] leading-none opacity-0 transition-opacity group-hover:opacity-70 hover:!opacity-100 focus-visible:opacity-100"
+            className="opacity-0 transition-opacity group-hover:opacity-60 hover:!opacity-100 focus-visible:opacity-100"
           >
-            ×
-          </button>
+            <CloseIcon />
+          </IconBtn>
         </div>
       </div>
       <button
@@ -274,37 +276,39 @@ function CustomCard({ id, index }: { id: string; index: number }) {
         } as React.CSSProperties
       }
     >
-      <div className="flex items-center justify-between gap-1">
+      {/* Name on its own row; controls below so the name isn't crowded. */}
+      <div className="flex flex-col gap-1">
         <input
           value={swatchData.name}
           onChange={(e) => updateCustomSwatch(id, { name: e.target.value })}
           onClick={(e) => e.stopPropagation()}
           aria-label="Rename custom color"
           spellCheck={false}
-          className="min-w-0 flex-1 truncate border-none bg-transparent text-xs font-semibold text-inherit outline-none placeholder:opacity-60 focus:underline"
+          className="w-full min-w-0 truncate border-none bg-transparent text-xs font-semibold text-inherit outline-none placeholder:opacity-60 focus:underline"
           style={{ color: "inherit" }}
         />
-        <div className="flex items-center gap-1">
-          <button
+        <div className="flex items-center gap-1.5">
+          <IconBtn
             onClick={() => toggleCustomLock(id)}
-            aria-label={swatchData.locked ? `Unlock ${swatchData.name}` : `Lock ${swatchData.name}`}
-            aria-pressed={swatchData.locked}
+            label={swatchData.locked ? `Unlock ${swatchData.name}` : `Lock ${swatchData.name}`}
+            pressed={swatchData.locked}
             title={
               swatchData.locked
                 ? "Locked — won't track the palette"
                 : "Tracking the palette — lock to freeze"
             }
-            className="rounded px-1 text-[11px] leading-none opacity-70 hover:opacity-100"
+            className={swatchData.locked ? "opacity-90" : "opacity-60 hover:opacity-100"}
           >
-            {swatchData.locked ? "🔒" : "🔓"}
-          </button>
-          <button
+            <LockIcon open={!swatchData.locked} />
+          </IconBtn>
+          <IconBtn
             onClick={() => removeCustomSwatch(id)}
-            aria-label={`Remove ${swatchData.name}`}
-            className="rounded px-1 text-[12px] leading-none opacity-0 transition-opacity group-hover:opacity-70 hover:!opacity-100"
+            label={`Remove ${swatchData.name}`}
+            title="Remove from palette"
+            className="opacity-0 transition-opacity group-hover:opacity-60 hover:!opacity-100 focus-visible:opacity-100"
           >
-            ×
-          </button>
+            <CloseIcon />
+          </IconBtn>
         </div>
       </div>
       <div>
@@ -320,6 +324,83 @@ function CustomCard({ id, index }: { id: string; index: number }) {
 /** Near-black/near-white text pick for a custom swatch (no engine on-color exists). */
 function oklchTextOn(color: { l: number }) {
   return color.l > 0.6 ? { l: 0.15, c: 0, h: 0 } : { l: 0.98, c: 0, h: 0 };
+}
+
+/** Compact icon button used on swatch cards (inherits the card's text color). */
+function IconBtn({
+  onClick,
+  label,
+  title,
+  pressed,
+  expanded,
+  className = "",
+  children,
+}: {
+  onClick: () => void;
+  label: string;
+  title?: string;
+  pressed?: boolean;
+  expanded?: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={pressed}
+      aria-expanded={expanded}
+      title={title ?? label}
+      className={`grid h-5 w-5 place-items-center rounded text-inherit transition-opacity focus-visible:opacity-100 ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function LockIcon({ open }: { open: boolean }) {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="5" y="11" width="14" height="9" rx="2" fill="currentColor" />
+      {open ? (
+        // Open shackle (unlocked): hangs to the side.
+        <path
+          d="M8 11V8a4 4 0 0 1 7.5-1.9"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          fill="none"
+        />
+      ) : (
+        // Closed shackle (locked).
+        <path
+          d="M8 11V8a4 4 0 0 1 8 0v3"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          fill="none"
+        />
+      )}
+    </svg>
+  );
+}
+
+function TuneIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 8h10M18 8h2M4 16h2M10 16h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="16" cy="8" r="2.4" fill="currentColor" />
+      <circle cx="8" cy="16" r="2.4" fill="currentColor" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+    </svg>
+  );
 }
 
 function RampCell({
