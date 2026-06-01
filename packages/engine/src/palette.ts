@@ -226,7 +226,9 @@ export function buildTheme(seeds: PaletteSeeds, mode: ThemeMode): ThemePalette {
       // per-family lightness override is set (light mode only; used by vibrant
       // adjustment to reach a gamut-capped family's own chroma cusp).
       const famL =
-        mode === "light" ? (seeds.mainL?.[role] ?? brandMainL) : brandMainL;
+        mode === "light"
+          ? clamp(brandMainL + (seeds.mainLOffset?.[role] ?? 0), 0.05, 0.95)
+          : brandMainL;
       roles[role] = resolveGamutClamped(famL, seeds.chroma[role], seeds.hues[role]);
     } else {
       // neutral + semantic roles keep their fixed main ramp step.

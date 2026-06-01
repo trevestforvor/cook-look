@@ -42,6 +42,11 @@ interface AxisDef {
 // so the band clamp is rarely hit; temperature can rotate fully to the anchor.
 const AXIS_RANGE: Record<Axis, number> = { sat: 1.2, light: 0.45, temp: 1 };
 
+// Slider positions within ±this of center snap to exactly 0 (your palette), so
+// returning to base values is a reliable catch, not a pixel hunt. The step is
+// 0.02, so this is ~3 steps of magnetism around the midpoint.
+const MIDPOINT_SNAP = 0.06;
+
 const AXES: readonly AxisDef[] = [
   {
     axis: "sat",
@@ -126,7 +131,12 @@ export function VariationsPanel() {
     setPos(nextPos);
   };
 
-  const onAxis = (axis: Axis, value: number) => commit({ ...pos, [axis]: value });
+  // Snap to the midpoint (0 = your palette) when the user lands close to it, so
+  // they can reliably return to base values without pixel-hunting for dead center.
+  const onAxis = (axis: Axis, value: number) => {
+    const snapped = Math.abs(value) <= MIDPOINT_SNAP ? 0 : value;
+    commit({ ...pos, [axis]: snapped });
+  };
   const reset = () => commit(ZERO);
 
   const dirty = pos.sat !== 0 || pos.light !== 0 || pos.temp !== 0;

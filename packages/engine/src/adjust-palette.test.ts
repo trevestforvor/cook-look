@@ -80,7 +80,7 @@ describe("adjustPalette", () => {
     // Vivid Violet 305 triadic: secondary (amber) + accent (teal) render at the
     // shared brand lightness where they're already at the sRGB ceiling, so a
     // chroma bump alone is invisible. The cusp lightness-shift must make them
-    // actually change, and record a per-family mainL override.
+    // actually change, and record a per-family lightness OFFSET.
     const p0 = generatePalette({
       baseColor: { l: 0.648, c: 0.23, h: 305 },
       harmony: "triadic",
@@ -88,17 +88,32 @@ describe("adjustPalette", () => {
     const p1 = adjustPalette({ palette: p0, intent: { saturation: "more", amount: 0.4 } });
     expect(p1.light.roles.secondary.hex).not.toBe(p0.light.roles.secondary.hex);
     expect(p1.light.roles.accent.hex).not.toBe(p0.light.roles.accent.hex);
-    expect(p1.seeds.mainL).toBeDefined();
+    expect(p1.seeds.mainLOffset).toBeDefined();
   });
 
-  it("'less saturation' drops any per-family lightness override (rejoins cohesion)", () => {
+  it("'less saturation' drops any per-family lightness offset (rejoins cohesion)", () => {
     const p0 = generatePalette({
       baseColor: { l: 0.648, c: 0.23, h: 305 },
       harmony: "triadic",
     });
     const vivid = adjustPalette({ palette: p0, intent: { saturation: "more", amount: 0.4 } });
-    expect(vivid.seeds.mainL).toBeDefined();
+    expect(vivid.seeds.mainLOffset).toBeDefined();
     const muted = adjustPalette({ palette: vivid, intent: { saturation: "less", amount: 0.4 } });
-    expect(muted.seeds.mainL).toBeUndefined();
+    expect(muted.seeds.mainLOffset).toBeUndefined();
+  });
+
+  it("lightness axis moves secondary/accent EVEN when vibrant set a cusp offset", () => {
+    // The interaction bug: a vibrant cusp shift used to pin secondary/accent to
+    // an absolute lightness, so the lightness axis then only moved primary. With
+    // an OFFSET that composes with base L, all three must respond to lightness.
+    const p0 = generatePalette({
+      baseColor: { l: 0.648, c: 0.23, h: 305 },
+      harmony: "triadic",
+    });
+    const vivid = adjustPalette({ palette: p0, intent: { saturation: "more", amount: 0.6 } });
+    const darker = adjustPalette({ palette: vivid, intent: { lightness: "darker", amount: 0.3 } });
+    for (const r of ["primary", "secondary", "accent"] as const) {
+      expect(darker.light.roles[r].hex).not.toBe(vivid.light.roles[r].hex);
+    }
   });
 });

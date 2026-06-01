@@ -189,24 +189,30 @@ export function adjustPalette(input: {
   // swatch at the shared brand lightness, where they may already be at the sRGB
   // gamut ceiling — so raising their chroma ceiling does nothing visible. The
   // only way to look MORE saturated there is to move that family's lightness
-  // toward its own hue's chroma cusp (which differs per hue). Do this only when
-  // the family is actually capped, and only proportionally to intensity, so a
-  // cohesive palette isn't pulled apart for no gain.
-  const nextMainL: Partial<Record<RampRole, number>> = { ...seeds.mainL };
+  // toward its own hue's chroma cusp (which differs per hue). We store this as a
+  // per-family OFFSET from the (new) base lightness, so it COMPOSES with the
+  // lightness axis — the lightness slider still moves secondary/accent. Only
+  // applied when the family is actually capped at its current effective L, and
+  // proportional to intensity.
+  const nextOffset: Partial<Record<RampRole, number>> = { ...seeds.mainLOffset };
   if (moreSaturated) {
     for (const family of BRAND_CONTAINER_FAMILIES) {
       const hue = nextHues[family];
-      const startL = seeds.mainL?.[family] ?? seeds.base.l;
-      const capped = nextChroma[family] >= maxChroma(startL, hue) - 0.003;
+      const startOffset = seeds.mainLOffset?.[family] ?? 0;
+      const effectiveL = clamp(baseL + startOffset, 0.05, 0.95);
+      const capped = nextChroma[family] >= maxChroma(effectiveL, hue) - 0.003;
       if (capped) {
         const cusp = cuspLightness(hue);
-        nextMainL[family] = clamp(startL + (cusp - startL) * amount, 0.05, 0.95);
+        // Move the EFFECTIVE lightness a fraction toward the cusp; keep it as an
+        // offset relative to base so later lightness moves still apply.
+        const targetL = effectiveL + (cusp - effectiveL) * amount;
+        nextOffset[family] = clamp(targetL, 0.05, 0.95) - baseL;
       }
     }
   } else if (intent.saturation === "less") {
-    // Muting no longer needs the cusp shift — drop any prior override so the
+    // Muting no longer needs the cusp shift — drop any prior offset so the
     // family rejoins the cohesive shared lightness.
-    for (const family of BRAND_CONTAINER_FAMILIES) delete nextMainL[family];
+    for (const family of BRAND_CONTAINER_FAMILIES) delete nextOffset[family];
   }
 
   const nextBase: Oklch = {
@@ -220,7 +226,7 @@ export function adjustPalette(input: {
     base: nextBase,
     hues: nextHues,
     chroma: nextChroma,
-    mainL: Object.keys(nextMainL).length > 0 ? nextMainL : undefined,
+    mainLOffset: Object.keys(nextOffset).length > 0 ? nextOffset : undefined,
   };
 
   return {

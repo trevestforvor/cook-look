@@ -184,14 +184,15 @@ export interface PaletteSeeds {
    */
   mainSteps?: Partial<Record<RampRole, Record<ThemeMode, RampStep>>>;
   /**
-   * Optional per-family override of the LIGHTNESS used for a brand family's main
-   * swatch (secondary/accent) in light mode, replacing the shared brand
-   * lightness. Used by whole-palette "vibrant" adjustment: a family already at
-   * the sRGB gamut ceiling can only become more saturated by moving toward its
-   * own hue's chroma cusp, which differs per hue. When absent, the shared brand
-   * lightness is used (the cohesive default).
+   * Optional per-family lightness OFFSET (added to the shared brand lightness)
+   * for a brand family's main swatch (secondary/accent) in light mode. Used by
+   * whole-palette "vibrant" adjustment: a family already at the sRGB gamut
+   * ceiling can only become more saturated by moving toward its own hue's chroma
+   * cusp, which differs per hue. Because it's an OFFSET (not an absolute), it
+   * COMPOSES with lightness adjustments — the lightness axis still moves these
+   * families. When absent/0, the shared brand lightness is used.
    */
-  mainL?: Partial<Record<RampRole, number>>;
+  mainLOffset?: Partial<Record<RampRole, number>>;
   /**
    * Resolved hue offsets (degrees from base) that defined this palette's
    * harmony, normalized so index 0 is the base. Persisted so an audit can
