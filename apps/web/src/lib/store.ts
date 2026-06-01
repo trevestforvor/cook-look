@@ -648,6 +648,19 @@ function neutralStep(palette: Palette, step: RampStep): Oklch {
 }
 
 /**
+ * Where a suggestion applies when clicked: replace the `surface` ground, replace
+ * the `neutral` anchor, or add a new `brand` (custom) color. Neutral suggestions
+ * shape the neutral/surface system rather than introducing a brand color.
+ */
+export type SuggestionTarget = "surface" | "neutral" | "brand";
+
+export interface PaletteSuggestionGroup {
+  category: string;
+  target: SuggestionTarget;
+  swatches: Oklch[];
+}
+
+/**
  * Engine-derived palette suggestions, grouped by category, for the
  * "add a related color" UI. Every value comes from the engine — neutral ramp
  * steps, {@link adjustColor} variants, and {@link harmonyHues} partners — so the
@@ -655,25 +668,30 @@ function neutralStep(palette: Palette, step: RampStep): Oklch {
  */
 export function paletteSuggestions(
   palette: Palette,
-): { category: string; swatches: Oklch[] }[] {
-  const out: { category: string; swatches: Oklch[] }[] = [];
+): PaletteSuggestionGroup[] {
+  const out: PaletteSuggestionGroup[] = [];
 
-  // Light Neutral — pale end of the (brand-tinted) neutral ramp.
+  // Light Neutral — pale end of the (brand-tinted) neutral ramp. Applies to the
+  // SURFACE role (the light ground), not a new brand color.
   out.push({
     category: "Light Neutral",
+    target: "surface",
     swatches: ([50, 100, 200] as RampStep[]).map((s) => neutralStep(palette, s)),
   });
 
-  // Dark Neutral — deep end of the neutral ramp.
+  // Dark Neutral — deep end of the neutral ramp. Applies to the NEUTRAL anchor.
   out.push({
     category: "Dark Neutral",
+    target: "neutral",
     swatches: ([800, 900, 950] as RampStep[]).map((s) => neutralStep(palette, s)),
   });
 
-  // Accent — saturation/lightness variants of the accent role.
+  // Accent — saturation/lightness variants of the accent role. Added as a brand
+  // color (it's brand-ish, not a ground).
   const accent = palette.light.roles.accent.oklch;
   out.push({
     category: "Accent",
+    target: "brand",
     swatches: [
       adjustColor({ color: accent, intent: { saturation: "more" } }).after.oklch,
       adjustColor({ color: accent, intent: { saturation: "less", lightness: "lighter" } })
@@ -696,7 +714,7 @@ export function paletteSuggestions(
     seen.add(key);
     partners.push({ l: base.l, c: base.c, h });
   }
-  out.push({ category: "Harmony Partner", swatches: partners });
+  out.push({ category: "Harmony Partner", target: "brand", swatches: partners });
 
   return out;
 }

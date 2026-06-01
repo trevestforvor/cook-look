@@ -35,6 +35,7 @@ function rotate<T>(arr: readonly T[], offset: number): T[] {
 export function SmartSuggestionsPanel() {
   const palette = useChroma((s) => s.palette);
   const addCustomSwatch = useChroma((s) => s.addCustomSwatch);
+  const setRoleColor = useChroma((s) => s.setRoleColor);
 
   // The shuffle counter is bumped ONLY by the user action below — never from
   // random/time at render, so SSR and the first client render agree.
@@ -48,9 +49,21 @@ export function SmartSuggestionsPanel() {
     const globalOrder = rotate(groups, shuffleTick);
     return globalOrder.map((group, gi) => ({
       category: group.category,
+      target: group.target,
       swatches: rotate(group.swatches, shuffleTick + gi).slice(0, MAX_PER_GROUP),
     }));
   }, [groups, shuffleTick]);
+
+  // Neutral suggestions shape the neutral/surface SYSTEM; brand-ish ones add a
+  // new custom color. (Light Neutral → surface, Dark Neutral → neutral.)
+  const applySuggestion = (
+    target: "surface" | "neutral" | "brand",
+    name: string,
+    color: Oklch,
+  ) => {
+    if (target === "brand") addCustomSwatch(name, color);
+    else setRoleColor(target, color);
+  };
 
   const isEmpty = rotatedGroups.every((g) => g.swatches.length === 0);
 
@@ -88,13 +101,17 @@ export function SmartSuggestionsPanel() {
                 {group.swatches.map((color: Oklch, i) => {
                   const hex = resolveSwatch(color).hex;
                   const name = `${group.category} ${i + 1}`;
+                  const verb =
+                    group.target === "brand"
+                      ? "Add"
+                      : `Set ${group.target} to`;
                   return (
                     <li key={`${group.category}-${i}-${hex}`} className="shrink-0">
                       <button
                         type="button"
-                        aria-label={`Add ${hex} to palette`}
-                        title={hex}
-                        onClick={() => addCustomSwatch(name, color)}
+                        aria-label={`${verb} ${hex}`}
+                        title={`${verb} ${hex}`}
+                        onClick={() => applySuggestion(group.target, name, color)}
                         className="h-12 w-12 rounded-lg border border-[var(--border)] outline-none transition-transform duration-[120ms] ease-standard hover:scale-105 focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-1)] motion-reduce:transition-none motion-reduce:hover:scale-100"
                         style={{ backgroundColor: hex }}
                       />
