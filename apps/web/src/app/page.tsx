@@ -63,12 +63,12 @@ export default function Page() {
         {/* Right rail — Refine & Ship */}
         <section className={`${show("refine")} xl:col-span-3 space-y-5`}>
           <RailLabel>Refine &amp; Ship</RailLabel>
-          <HarmonyCheckPanel />
           <VariationsPanel />
+          <SmartSuggestionsPanel />
+          <HarmonyCheckPanel />
           <Panel>
             <AccessibilityPanel />
           </Panel>
-          <SmartSuggestionsPanel />
           <Panel>
             <ExportPanel />
           </Panel>
