@@ -2,232 +2,155 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   Chroma design tokens
+   - Dark is the default theme; .theme-light overrides for light.
+   - The SPECTRAL chrome identity (--accent*, --spectrum) is the
+     stable "Chroma" brand. It does NOT track the user's palette.
+   - ThemeSync writes --palette-primary at runtime for palette-aware
+     accents (preview, etc.), kept separate from the brand chrome.
+   ============================================================ */
+
 :root {
   color-scheme: dark;
 
-  /*
-   * Tinted-neutral OKLCH token system. Every surface, line, and text tier
-   * carries a sliver of the live base hue (--app-hue) at low chroma — never
-   * pure gray/black. --app-hue and --accent are updated at runtime by
-   * <ThemeSync/> from the engine's palette output, so the editor chrome
-   * subtly breathes the color being edited.
-   */
-  --app-hue: 305;
+  /* surfaces (dark default) — warm-tinted neutrals (~hue 285) */
+  --bg: #0a0b11;
+  --surface-1: #12131c;
+  --surface-2: #181a26;
+  --surface-3: #1f2230;
 
-  /* Surfaces — depth from lightness, not shadow. */
-  --surface-bg: oklch(0.09 0.012 var(--app-hue)); /* page background */
-  --surface-0: oklch(0.12 0.013 var(--app-hue)); /* panels */
-  --surface-1: oklch(0.16 0.012 var(--app-hue)); /* raised elements */
-  --surface-2: oklch(0.21 0.011 var(--app-hue)); /* controls / inputs */
-  --line: oklch(0.28 0.014 var(--app-hue)); /* borders */
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.16);
 
-  /* Text tiers — contrast verified to pass ~4.5:1 on the surfaces above. */
-  --ink-hi: oklch(0.97 0.005 var(--app-hue)); /* primary text */
-  --ink-mid: oklch(0.76 0.012 var(--app-hue)); /* secondary text */
-  --ink-lo: oklch(0.58 0.013 var(--app-hue)); /* tertiary / labels */
+  --text: #ecedf4;
+  --text-2: #a6abbd;
+  --text-3: #6c7286;
 
-  /* Accent — engine-derived at runtime; this is the static fallback. */
-  --accent: oklch(0.648 0.23 var(--app-hue));
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-3: 0 16px 48px rgba(0, 0, 0, 0.6);
 
-  /* Motion easing tokens */
-  --ease-enter: cubic-bezier(0.25, 1, 0.5, 1);
-  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
-  --ease-snappy: cubic-bezier(0.22, 1, 0.36, 1);
+  /* spectral chrome identity (stable brand) */
+  --accent: #7c5cff; /* violet 305° */
+  --accent-2: #b15cff; /* fuchsia */
+  --accent-3: #38d9ff; /* cyan */
+  --accent-contrast: #ffffff;
+  --focus: #9a7bff;
+  --spectrum: linear-gradient(
+    135deg,
+    var(--accent) 0%,
+    var(--accent-2) 50%,
+    var(--accent-3) 100%
+  );
+  /* wider stop set for the animated sheen (background-position drifts) */
+  --spectrum-sheen: linear-gradient(
+    115deg,
+    var(--accent) 0%,
+    var(--accent-2) 25%,
+    var(--accent-3) 50%,
+    var(--accent-2) 75%,
+    var(--accent) 100%
+  );
+
+  /* palette-derived accent (set by ThemeSync) — NOT the brand chrome */
+  --palette-primary: #7c5cff;
+  --palette-on-primary: #ffffff;
+
+  /* status (chrome-level, glyph always paired in UI) */
+  --success: #3fb779;
+  --warning: #e0a93c;
+  --danger: #f0625d;
+
+  /* scale */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius: var(--radius-lg);
+
+  /* backward-compat aliases (older components) */
+  --panel: var(--surface-1);
+  --panel-2: var(--surface-2);
+  --muted: var(--text-2);
+}
+
+.theme-light {
+  color-scheme: light;
+
+  --bg: #fafafd;
+  --surface-1: #ffffff;
+  --surface-2: #f3f4f8;
+  --surface-3: #eceef4;
+
+  --border: rgba(16, 18, 28, 0.1);
+  --border-strong: rgba(16, 18, 28, 0.18);
+
+  --text: #15161d;
+  --text-2: #4a5060;
+  --text-3: #7a8092;
+
+  --shadow-1: 0 1px 2px rgba(16, 18, 28, 0.06);
+  --shadow-2: 0 8px 24px rgba(16, 18, 28, 0.1);
+  --shadow-3: 0 16px 48px rgba(16, 18, 28, 0.14);
+
+  --focus: #7c5cff;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 html,
 body {
-  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-feature-settings: "cv11", "ss01";
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-body {
-  margin: 0;
-  background: var(--surface-bg);
-  color: var(--ink-hi);
-  font-family: var(--font-geist), ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
+/* focus ring — mandatory on all interactives */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 ::selection {
-  background: var(--accent);
-  color: var(--surface-bg);
+  background: color-mix(in oklab, var(--accent) 40%, transparent);
 }
 
-/* Thin scrollbars for the editor panels. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--surface-2) transparent;
-}
-*::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-*::-webkit-scrollbar-thumb {
-  background: var(--surface-2);
-  border-radius: 8px;
-}
-
-/*
- * Bespoke range slider (<Slider/>). Native chrome is stripped; the track is a
- * 6px rounded bar painted with --track-bg (a live OKLCH gradient or the accent
- * fill fallback), and the thumb is a clean white circle with a tinted ring that
- * thickens to the accent on :focus-visible (2–4px focus ring) and on hover.
- */
-.chroma-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 20px;
-  background: transparent;
-  cursor: pointer;
-  outline: none;
-}
-.chroma-slider::-webkit-slider-runnable-track {
-  height: 6px;
-  border-radius: 999px;
-  background: var(--track-bg);
-  border: 1px solid var(--line);
-}
-.chroma-slider::-moz-range-track {
-  height: 6px;
-  border-radius: 999px;
-  background: var(--track-bg);
-  border: 1px solid var(--line);
-}
-.chroma-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  margin-top: -6px; /* center the 16px thumb on the 6px (+2 border) track */
-  border-radius: 50%;
-  background: #fff;
-  border: 1px solid var(--line);
-  box-shadow:
-    0 1px 3px oklch(0 0 0 / 0.4),
-    0 0 0 0 var(--accent);
-  transition:
-    box-shadow 120ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-.chroma-slider::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  border: 1px solid var(--line);
-  box-shadow:
-    0 1px 3px oklch(0 0 0 / 0.4),
-    0 0 0 0 var(--accent);
-  transition:
-    box-shadow 120ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-.chroma-slider:hover::-webkit-slider-thumb {
-  transform: scale(1.1);
-}
-.chroma-slider:hover::-moz-range-thumb {
-  transform: scale(1.1);
-}
-.chroma-slider:active::-webkit-slider-thumb {
-  transform: scale(1.2);
-}
-.chroma-slider:active::-moz-range-thumb {
-  transform: scale(1.2);
-}
-.chroma-slider:focus-visible::-webkit-slider-thumb {
-  box-shadow:
-    0 1px 3px oklch(0 0 0 / 0.4),
-    0 0 0 3px color-mix(in oklch, var(--accent) 55%, transparent);
-}
-.chroma-slider:focus-visible::-moz-range-thumb {
-  box-shadow:
-    0 1px 3px oklch(0 0 0 / 0.4),
-    0 0 0 3px color-mix(in oklch, var(--accent) 55%, transparent);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .chroma-slider::-webkit-slider-thumb,
-  .chroma-slider::-moz-range-thumb {
-    transition: none;
+/* animated spectral sheen — used on wordmark + primary button */
+@keyframes chroma-sheen {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
   }
 }
 
-/* ─── Global focus rings ─────────────────────────────────────────────────────
- * 2–4px accent ring on every interactive element; :focus-visible only so
- * mouse clicks don't show the ring (matching platform convention).
- */
-*:focus-visible {
-  outline: 3px solid color-mix(in oklch, var(--accent) 80%, transparent);
-  outline-offset: 2px;
-  border-radius: 4px;
+.chroma-spectrum-text {
+  background: var(--spectrum-sheen);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: chroma-sheen 8s linear infinite;
 }
 
-/* Inputs and textareas get a subtler inset ring so the border doesn't jump. */
-input:focus-visible,
-textarea:focus-visible {
-  outline: 2px solid color-mix(in oklch, var(--accent) 70%, transparent);
-  outline-offset: 0px;
+.chroma-spectrum-fill {
+  background: var(--spectrum-sheen);
+  background-size: 200% 100%;
+  animation: chroma-sheen 8s linear infinite;
 }
 
-/* ─── Commit halo pulse ───────────────────────────────────────────────────────
- * Scale ring outward from the wheel edge: 1 → 1.04 → 1, opacity 0.4 → 0.
- * Applied to .wheel-halo-ring (a sibling element in ColorWheel.tsx).
- */
-@keyframes halo-pulse {
-  0%   { transform: scale(1);    opacity: 0.4; }
-  60%  { transform: scale(1.04); opacity: 0.18; }
-  100% { transform: scale(1);    opacity: 0; }
-}
-
-.wheel-halo-active {
-  animation: halo-pulse 300ms var(--ease-enter) forwards;
-}
-
-/* ─── Swatch stagger reveal ──────────────────────────────────────────────────
- * Role swatch cards and ramp cells animate in on palette commit.
- * Triggered by a React key change; each item uses --stagger-i for delay.
- */
-@keyframes swatch-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.swatch-reveal {
-  animation: swatch-in 200ms var(--ease-enter) both;
-  animation-delay: calc(var(--stagger-i, 0) * 40ms);
-}
-
-/* ─── Micro-interaction utilities ───────────────────────────────────────────
- * Hover lift + press scale for buttons and interactive surfaces.
- * Use transform/opacity only — GPU composited, no layout thrash.
- */
-.btn-press {
-  transition:
-    transform 150ms var(--ease-snappy),
-    opacity 150ms var(--ease-snappy);
-  will-change: transform;
-}
-.btn-press:hover {
-  transform: translateY(-1px);
-  opacity: 0.92;
-}
-.btn-press:active {
-  transform: scale(0.97);
-  opacity: 0.85;
-}
-
-/* ─── Global reduced-motion override ────────────────────────────────────────
- * Cap all transitions and animations to near-zero for users who've requested
- * reduced motion. The keyframe overrides above are also suppressed here.
- */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -236,4 +159,24 @@ textarea:focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  .chroma-spectrum-text,
+  .chroma-spectrum-fill {
+    background-size: 100% 100%;
+  }
+}
+
+/* scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-3);
 }

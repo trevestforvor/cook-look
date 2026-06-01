@@ -1,119 +1,161 @@
-import { AccessibilityPanel } from "@/components/AccessibilityPanel";
-import { AssistPanel } from "@/components/AssistPanel";
+"use client";
+
 import { ColorWheel } from "@/components/ColorWheel";
 import { Controls } from "@/components/Controls";
-import { DesignBriefCard } from "@/components/DesignBriefCard";
-import { ExportPanel } from "@/components/ExportPanel";
-import { ModeToggle } from "@/components/ModeToggle";
 import { PaletteGrid } from "@/components/PaletteGrid";
+import { RemixBar } from "@/components/RemixBar";
+import { AccessibilityPanel } from "@/components/AccessibilityPanel";
+import { ExportPanel } from "@/components/ExportPanel";
 import { PreviewPanel } from "@/components/PreviewPanel";
+import { AssistPanel } from "@/components/AssistPanel";
+import { DesignBriefCard } from "@/components/DesignBriefCard";
+import { HarmonyCheckPanel } from "@/components/HarmonyCheckPanel";
+import { VariationsPanel } from "@/components/VariationsPanel";
+import { SmartSuggestionsPanel } from "@/components/SmartSuggestionsPanel";
 import { ThemeSync } from "@/components/ThemeSync";
+import { ModeToggle } from "@/components/ModeToggle";
+import { ProModeToggle } from "@/components/ProModeToggle";
+import { Panel } from "@/components/ui";
+import { useState } from "react";
 
-/**
- * A titled block within a plane. Surface level is set by the parent plane via
- * the `surface` prop so the rail / canvas / sidebar read as distinct planes
- * rather than one flat monoculture.
- */
-function Block({
-  title,
-  children,
-  surface = "surface-0",
-  className = "",
-}: {
-  title?: string;
-  children: React.ReactNode;
-  surface?: "surface-0" | "surface-1";
-  className?: string;
-}) {
-  // Literal classes so Tailwind's JIT scanner picks them up.
-  const surfaceClass = surface === "surface-1" ? "bg-surface-1" : "bg-surface-0";
-  return (
-    <section className={`rounded-2xl border border-line ${surfaceClass} p-5 ${className}`}>
-      {title && (
-        <h2 className="mb-4 font-display text-sm font-medium text-ink-hi">
-          {title}
-        </h2>
-      )}
-      {children}
-    </section>
-  );
-}
+type MobileTab = "create" | "palette" | "refine";
 
 export default function Page() {
+  // Single-column phone layout shows one section at a time via sticky bottom
+  // tabs; on lg+ all three rails are visible and the tab state is ignored.
+  const [tab, setTab] = useState<MobileTab>("palette");
+
+  const show = (t: MobileTab) =>
+    // Below lg: only the active tab's section is shown. At lg+: always shown.
+    tab === t ? "block" : "hidden lg:block";
+
   return (
-    <div className="flex min-h-screen flex-col">
+    <main className="mx-auto max-w-[1480px] px-4 pb-24 pt-6 sm:px-6 lg:pb-6">
       <ThemeSync />
+      <Header />
 
-      {/* Top bar — single-hue logomark + wordmark + tagline, mode toggle right. */}
-      <header className="flex flex-wrap items-center gap-4 border-b border-line bg-surface-0 px-4 py-4 lg:px-8">
-        <div className="flex items-center gap-3">
-          <Logomark />
-          <div>
-            <h1 className="font-display text-xl font-medium tracking-tight text-ink-hi">
-              Chroma
-            </h1>
-            <p className="text-xs text-ink-mid">
-              Deterministic OKLCH · role-based palettes · APCA + WCAG
-            </p>
-          </div>
-        </div>
-        <div className="ml-auto">
-          <ModeToggle />
-        </div>
-      </header>
+      <div className="mt-6 grid grid-cols-1 gap-5 xl:grid-cols-12">
+        {/* Left rail — Create */}
+        <section className={`${show("create")} xl:col-span-3 space-y-5`}>
+          <RailLabel>Create</RailLabel>
+          <Panel>
+            <ColorWheel />
+          </Panel>
+          <Panel>
+            <Controls />
+          </Panel>
+        </section>
 
-      {/* Workbench — instrument rail · canvas · sidebar. Stacks <1024px. */}
-      <div className="flex flex-1 flex-col gap-6 p-4 lg:flex-row lg:gap-6 lg:p-6">
-        {/* Left instrument rail — the ColorWheel is the hero. */}
-        <aside className="flex w-full flex-col gap-4 lg:w-[360px] lg:shrink-0">
-          <Block surface="surface-0" className="flex flex-col gap-6">
-            <div className="flex flex-col gap-2">
-              <h2 className="font-display text-sm font-medium text-ink-hi">
-                Instrument
-              </h2>
-              <div className="py-2">
-                <ColorWheel />
-              </div>
+        {/* Center — the palette stage (hero) */}
+        <section className={`${show("palette")} xl:col-span-6 space-y-5`}>
+          <RailLabel>Palette</RailLabel>
+          <Panel variant="hero">
+            <div className="flex flex-col gap-5">
+              <RemixBar />
+              <PaletteGrid />
             </div>
-            <div className="border-t border-line pt-5">
-              <Controls />
-            </div>
-          </Block>
-          <Block title="Export tokens" surface="surface-0">
-            <ExportPanel />
-          </Block>
-        </aside>
-
-        {/* Center canvas — the artifact being designed. Dominant. */}
-        <main className="flex min-w-0 flex-1 flex-col gap-4">
-          <DesignBriefCard />
-          <Block title="Palette" surface="surface-1">
-            <PaletteGrid />
-          </Block>
-          <Block title="Live preview" surface="surface-1">
+          </Panel>
+          <Panel>
             <PreviewPanel />
-          </Block>
-        </main>
+          </Panel>
+        </section>
 
-        {/* Right sidebar — assistant over accessibility. */}
-        <aside className="flex w-full flex-col gap-4 lg:w-[340px] lg:shrink-0">
-          <Block title="Assistant" surface="surface-0">
-            <AssistPanel />
-          </Block>
-          <Block title="Accessibility" surface="surface-0">
+        {/* Right rail — Refine & Ship */}
+        <section className={`${show("refine")} xl:col-span-3 space-y-5`}>
+          <RailLabel>Refine &amp; Ship</RailLabel>
+          <HarmonyCheckPanel />
+          <VariationsPanel />
+          <Panel>
             <AccessibilityPanel />
-          </Block>
-        </aside>
+          </Panel>
+          <SmartSuggestionsPanel />
+          <Panel>
+            <ExportPanel />
+          </Panel>
+          <Panel>
+            <DesignBriefCard />
+          </Panel>
+          <Panel>
+            <AssistPanel />
+          </Panel>
+        </section>
       </div>
-    </div>
+
+      <MobileTabs tab={tab} onTab={setTab} />
+    </main>
   );
 }
 
-/** Single-hue logomark — a clean geometric mark in the live --accent token. */
-function Logomark() {
+/** Sticky bottom tab bar — phone/tablet only (hidden at lg+). */
+function MobileTabs({
+  tab,
+  onTab,
+}: {
+  tab: MobileTab;
+  onTab: (t: MobileTab) => void;
+}) {
+  const tabs: { id: MobileTab; label: string }[] = [
+    { id: "create", label: "Create" },
+    { id: "palette", label: "Palette" },
+    { id: "refine", label: "Refine" },
+  ];
   return (
-    <span className="grid h-9 w-9 place-items-center rounded-xl bg-surface-1 ring-1 ring-line">
-      <span className="block h-4 w-4 rounded-full bg-accent" />
-    </span>
+    <nav
+      aria-label="Sections"
+      className="fixed inset-x-0 bottom-0 z-40 flex border-t border-[var(--border)] bg-[var(--surface-1)]/95 backdrop-blur lg:hidden"
+    >
+      {tabs.map((t) => {
+        const active = t.id === tab;
+        return (
+          <button
+            key={t.id}
+            onClick={() => onTab(t.id)}
+            aria-current={active ? "page" : undefined}
+            className={`flex-1 py-3 text-[13px] font-semibold transition-colors ${
+              active
+                ? "text-[var(--accent)]"
+                : "text-[var(--text-2)] hover:text-[var(--text)]"
+            }`}
+          >
+            {t.label}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function RailLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-3)]">
+      {children}
+    </p>
+  );
+}
+
+function Header() {
+  return (
+    <header className="flex items-center justify-between gap-4">
+      <div className="flex items-center gap-3">
+        <div
+          className="chroma-spectrum-fill flex h-10 w-10 items-center justify-center rounded-xl text-white font-bold text-lg shadow-2"
+          aria-hidden
+        >
+          C
+        </div>
+        <div>
+          <h1 className="text-xl font-bold leading-tight tracking-tight">
+            <span className="chroma-spectrum-text">Chroma</span>
+          </h1>
+          <p className="text-[12px] text-[var(--text-2)] leading-tight">
+            Accessible OKLCH palettes — harmonies, ramps, APCA + WCAG
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <ProModeToggle />
+        <ModeToggle />
+      </div>
+    </header>
   );
 }

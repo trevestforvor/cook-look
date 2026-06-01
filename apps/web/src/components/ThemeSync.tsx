@@ -1,26 +1,32 @@
 "use client";
 
-import { useEffect } from "react";
 import { useChroma } from "@/lib/store";
+import { useEffect } from "react";
 
 /**
- * Renders nothing. Subscribes to the editing base hue and the engine-computed
- * accent, and writes them onto the document root as --app-hue / --accent. This
- * makes the entire editor chrome (tinted-neutral surfaces, text, borders, and
- * accent) subtly track the color being edited.
- *
- * The engine owns all color VALUES, so the accent is read straight from the
- * palette output (light-mode primary role) — never computed here.
+ * Bridges store state to CSS:
+ *  - toggles the `.theme-light` class on <html> for the light token set
+ *  - writes `--palette-primary` (the user's generated primary) so
+ *    palette-aware spots can use it. This is intentionally SEPARATE from
+ *    the stable spectral brand chrome (`--accent*`), which never tracks
+ *    the user's palette.
  */
 export function ThemeSync() {
-  const hue = useChroma((s) => s.base.h);
-  const accent = useChroma((s) => s.palette.light.roles.primary.hex);
+  const mode = useChroma((s) => s.mode);
+  const palette = useChroma((s) => s.palette);
 
   useEffect(() => {
     const root = document.documentElement;
-    root.style.setProperty("--app-hue", String(hue));
-    root.style.setProperty("--accent", accent);
-  }, [hue, accent]);
+    root.classList.toggle("theme-light", mode === "light");
+
+    const theme = mode === "light" ? palette.light : palette.dark;
+    if (theme?.roles?.primary) {
+      root.style.setProperty("--palette-primary", theme.roles.primary.hex);
+    }
+    if (theme?.on?.primary) {
+      root.style.setProperty("--palette-on-primary", theme.on.primary.hex);
+    }
+  }, [mode, palette]);
 
   return null;
 }

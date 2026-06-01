@@ -105,7 +105,11 @@ export function AddColorMenu() {
               placeholder="#6b21a8 or oklch(0.5 0.2 305)"
               className="rounded border border-line bg-surface-1 px-2 py-1 font-mono text-xs text-ink-hi"
             />
-            {error && <div className="text-[11px] text-amber-400">{error}</div>}
+            {error && (
+              <div className="text-[11px]" style={{ color: "var(--warning)" }}>
+                {error}
+              </div>
+            )}
             <button
               onClick={submitCustom}
               disabled={atCap}

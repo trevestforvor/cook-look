@@ -80,9 +80,8 @@ export function Controls() {
             onBlur={commitHex}
             onKeyDown={(e) => e.key === "Enter" && commitHex()}
             spellCheck={false}
-            className={`w-full rounded border bg-surface-2 px-2 py-1.5 font-mono text-sm text-ink-hi outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface-0 ${
-              invalid ? "border-red-500" : "border-line"
-            }`}
+            className="w-full rounded border bg-surface-2 px-2 py-1.5 font-mono text-sm text-ink-hi outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface-0"
+            style={{ borderColor: invalid ? "var(--danger)" : "var(--border)" }}
           />
         </div>
         <p className="font-mono text-xs text-ink-lo">

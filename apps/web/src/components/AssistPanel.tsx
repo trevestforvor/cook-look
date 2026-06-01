@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useChroma } from "@/lib/store";
+import { AGENT_ENABLED } from "@/lib/config";
+import { Button } from "@/components/ui";
 
 const SUGGESTIONS = [
   "Design a calm fintech palette from our brand blue (#2f6df6).",
@@ -20,6 +22,36 @@ export function AssistPanel() {
 
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  if (!AGENT_ENABLED) {
+    return (
+      <div className="flex h-full flex-col gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-[var(--text)]">Design assistant</h3>
+          <p className="text-xs text-[var(--text-2)]">
+            Steers the engine via tool calls — it never writes color values itself.
+          </p>
+        </div>
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-3 text-xs leading-relaxed text-[var(--text-2)]">
+          <p className="mb-2 font-medium text-[var(--text)]">
+            Not available in this build.
+          </p>
+          <p>
+            The AI assistant needs a server-side endpoint (it holds the LLM API
+            keys), which isn&apos;t part of this static deployment. Everything
+            else in the editor — harmonies, palette generation, accessibility
+            audits, and token export — works fully here.
+          </p>
+          <p className="mt-2">
+            To enable it, run the app with a server (
+            <code className="font-mono text-[var(--text)]">pnpm dev</code>) or
+            deploy a host that supports the{" "}
+            <code className="font-mono text-[var(--text)]">/api/agent</code> route.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -92,7 +124,8 @@ export function AssistPanel() {
             {toolEvents.map((e, i) => (
               <li key={i}>
                 <span
-                  className={`font-mono ${e.isError ? "text-red-400" : "text-green-400"}`}
+                  className="font-mono"
+                  style={{ color: e.isError ? "var(--danger)" : "var(--success)" }}
                 >
                   {e.name}
                 </span>
@@ -104,7 +137,14 @@ export function AssistPanel() {
       )}
 
       {error && (
-        <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 p-2.5 text-xs text-amber-300">
+        <div
+          className="rounded-lg border p-2.5 text-xs"
+          style={{
+            color: "var(--warning)",
+            borderColor: "color-mix(in oklab, var(--warning) 40%, transparent)",
+            background: "color-mix(in oklab, var(--warning) 12%, transparent)",
+          }}
+        >
           {error}
         </div>
       )}
@@ -118,13 +158,9 @@ export function AssistPanel() {
           disabled={busy}
           className="flex-1 rounded-md border border-line bg-surface-2 px-3 py-2 text-sm text-ink-hi outline-none disabled:opacity-50"
         />
-        <button
-          onClick={submit}
-          disabled={busy}
-          className="rounded-md bg-accent px-3 py-2 text-sm font-medium text-bg transition hover:opacity-90 disabled:opacity-50"
-        >
+        <Button variant="primary" onClick={submit} disabled={busy}>
           Send
-        </button>
+        </Button>
       </div>
     </div>
   );

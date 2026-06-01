@@ -10,6 +10,9 @@ out/
 next-env.d.ts
 node-compile-cache/
 
+# transient: static-export build moves the api route here and restores it
+.api-stash/
+
 # env
 .env
 .env.local
@@ -25,3 +28,9 @@ pnpm-debug.log*
 coverage/
 .vercel
 .gstack/
+
+# runtime lock
+.claude/scheduled_tasks.lock
+
+# extracted competitor bundle (analysis only, do not commit)
+.planning/fixer-beautified.js

@@ -37,7 +37,7 @@ APIs):
 Prerequisites: **Node ≥ 18.18** and **pnpm ≥ 9** (`npm i -g pnpm`).
 
 ```bash
-git clone <repo-url> && cd cook-look
+git clone https://github.com/trevestforvor/cook-look/ && cd cook-look
 pnpm install
 ```
 
@@ -50,7 +50,7 @@ Useful root scripts:
 | Command | What it does |
 | --- | --- |
 | `pnpm dev` | Run the web editor at http://localhost:3000 |
-| `pnpm test` | Run the engine + agent test suites (130 tests) |
+| `pnpm test` | Run the engine + agent test suites (204 tests) |
 | `pnpm typecheck` | Strict typecheck across all packages |
 | `pnpm build` | Production build of the web app |
 | `pnpm build:cli` | Build the `chroma` CLI to `packages/cli/dist/index.js` |
@@ -70,9 +70,24 @@ pnpm dev      # → http://localhost:3000
   OKLCH lightness. The dimmed ring shows colors outside the sRGB gamut.
 - **Harmony** dropdown, **light/dark** toggle, live **role palette + tonal
   ramps**, and a **UI preview** (buttons, cards, inputs, status chips, links).
+- **Palette flexibility** — add, remove, and **lock** colors; locked colors are
+  frozen across regeneration, harmonization, and auto-fix. **Fine-tune** any
+  swatch with per-color OKLCH (L/C/H) sliders.
+- **Harmony Check** — flags colors that don't fit the palette (robust per-channel
+  median + MAD in OKLCH), with a Current-vs-Suggested carousel and one-click
+  Apply / Apply All / Dismiss; suggestions harmonize toward locked anchors when
+  you've locked colors.
+- **Variations** — adjust the whole palette (Vibrant / Muted / Lighter / Darker /
+  Warmer / Cooler) with a live intensity slider.
+- **Smart Palette Suggestions** — categorized colors (neutrals, accent, harmony
+  partners) you can shuffle and add.
 - **Accessibility panel** — APCA Lc + WCAG AA/AAA per pairing, with one-click
   **Fix → APCA 75** / **Fix → WCAG AA**.
+- **Pro mode** — a header toggle that reveals raw `oklch()` / APCA numbers
+  (progressive disclosure); off by default for a clean first run.
 - **Export** — copy/download tokens as CSS variables, Tailwind config, or JSON.
+- Responsive: three rails on desktop collapse to single-column with sticky
+  bottom tabs (Create · Palette · Refine) on phones.
 
 ### 2. AI assistant (the design agent)
 
@@ -212,6 +227,7 @@ the design agent calls.
 | `fixContrast({ palette, target })` | Minimally nudge OKLCH lightness to meet an APCA/WCAG target; returns what changed and why. |
 | `deriveDarkMode({ lightPalette })` / `deriveLightMode({ darkPalette })` | Coherently derive the opposite mode. |
 | `auditPalette({ palette })` | Full contrast (APCA + WCAG) + harmony + gamut report for both modes. |
+| `auditHarmonyFit({ palette, locked? })` | Flag chromatic roles that don't fit the palette, using robust per-channel **median + MAD** in OKLCH (adaptive thresholds, circular hue). Returns each outlier with a plain-language reason and a suggested swatch that snaps toward the palette median — or toward your **locked** colors when present. |
 | `recolor({ palette, newBase?, newHarmony? })` | Re-derive a palette while preserving role structure and chroma intent. |
 | `nameColors({ palette })` | Deterministic descriptive names per role. |
 | `toCssVariables` / `toTailwindConfig` / `toJSON` | Export design tokens (CSS custom properties with hex fallbacks + OKLCH, a Tailwind theme, or JSON). |
@@ -219,9 +235,11 @@ the design agent calls.
 ### Harmonies
 
 All computed in OKLCH hue space and unit-tested by exact angle:
-**complementary** (180°), **split-complementary** (±150°), **analogous**
-(configurable span), **monochromatic** (perceptual L/C ramp), **triadic** (120°),
-**tetradic**, **square** (90°), and **rectangular**.
+**complementary** (180°), **split-complementary** (±150°),
+**double-split-complementary**, **analogous** (configurable span),
+**monochromatic** (perceptual L/C ramp), **triadic** (120°), **tetradic**,
+**square** (90°), **rectangular**, **compound**, **shades** (single-hue tonal),
+and **custom** (user-supplied hue offsets).
 
 ### Output contract — a system of design
 
@@ -297,8 +315,14 @@ imported into the system prompt; it credits principles from Google Material
   role-based palette updates live.
 - **Live light/dark toggle** and a **side-by-side UI preview** (buttons, cards,
   inputs, status chips, links) rendered from engine output.
+- **Palette flexibility** — add / remove / lock colors and fine-tune any swatch
+  with per-color OKLCH (L/C/H) sliders; locked colors survive every rebuild.
+- **Harmony Check / Variations / Smart Suggestions** — surface the engine's
+  outlier detection, whole-palette adjustments, and categorized color
+  suggestions as one-click panels.
 - **Accessibility panel** — APCA Lc and WCAG AA/AAA per pairing with pass/fail,
   plus one-click **Fix → APCA 75** / **Fix → WCAG AA** wired to the engine.
+  **Pro mode** reveals the full numbers; off by default it shows a clean summary.
 - **Assist panel** — chat with the agent; its engine tool calls drive the same
   palette state the wheel edits, and the visible tool-call trace shows the
   steering.
@@ -311,12 +335,47 @@ The palette lives in a single store (`apps/web/src/lib/store.ts`) that is the
 **single source of truth** — the wheel, every panel, and the agent all read from
 and write to it through the same engine output.
 
+## Deployment
+
+The editor is fully client-side — harmonies, palette generation, accessibility
+audits, and token export all run in the browser from the pure engine — so it can
+be published as a **static site at no cost**. Only the AI assistant needs a
+server (the `/api/agent` route holds the LLM keys and runs the agent loop).
+
+### GitHub Pages (free)
+
+A workflow at `.github/workflows/deploy-pages.yml` builds a static export and
+publishes it. One-time setup: in repo **Settings → Pages**, set
+**Source = "GitHub Actions"**. Pushing to `main` (or running the workflow
+manually) then deploys to `https://<owner>.github.io/cook-look/`. The Assist
+panel shows a "not available in this build" notice; every other feature works.
+
+Build the static export locally with:
+
+```bash
+pnpm build:static   # → apps/web/out/
+```
+
+This sets `STATIC_EXPORT=1` (enables `output: "export"`, the `/cook-look`
+base path, and unoptimized images) and `NEXT_PUBLIC_AGENT_ENABLED=false`. It
+temporarily moves `apps/web/src/app/api` aside during the build (Next can't
+statically export a dynamic route handler) and restores it afterward, so the
+route stays available for server deployments. Serving from a user/org page or
+custom domain? Override the prefix with `BASE_PATH=""`.
+
+### With the AI assistant
+
+To keep the assistant, deploy to any host with a Node.js runtime (e.g. Vercel,
+or a static frontend on Cloudflare Pages with the agent ported to a Pages
+Function) and set the LLM keys from `.env.example` server-side.
+
 ## Testing
 
-`pnpm test` runs **130 tests** across both packages with no AI/network involved.
-The engine (102 tests): exact harmony hue angles, gamut mapping + clamp flags,
+`pnpm test` runs **204 tests** across both packages with no AI/network involved.
+The engine (176 tests): exact harmony hue angles, gamut mapping + clamp flags,
 APCA values against known reference pairs, WCAG ratios, ramp monotonicity and
-in-gamut guarantees, light/dark coherence, contrast repair, and token export.
+in-gamut guarantees, light/dark coherence, contrast repair, harmony-fit outlier
+detection (adaptive median/MAD, locked-anchor blend, hue-wrap), and token export.
 The agent (28 tests): every tool executes correctly against the engine, the
 research-first loop runs the same way under a scripted provider regardless of
 which provider name it carries (provider-agnosticism), and the OpenAI/Anthropic
