@@ -19,10 +19,25 @@ import { Panel, PanelHeader, Button, IconButton, Badge } from "@/components/ui";
 export function HarmonyCheckPanel() {
   const palette = useChroma((s) => s.palette);
   const applyHarmonyFix = useChroma((s) => s.applyHarmonyFix);
+  const roleOverrides = useChroma((s) => s.roleOverrides);
+  const customSwatches = useChroma((s) => s.customSwatches);
+
+  // Colors the user has committed to (locked roles + locked custom swatches).
+  // When present, the audit harmonizes outliers TOWARD these anchors (a partial
+  // blend) instead of toward the whole-palette median.
+  const lockedColors = useMemo(() => {
+    const out = Object.values(roleOverrides)
+      .filter(Boolean)
+      .map((o) => o!.light);
+    for (const c of customSwatches) {
+      if (c.locked && c.lockedColor) out.push(c.lockedColor);
+    }
+    return out;
+  }, [roleOverrides, customSwatches]);
 
   const { outliers } = useMemo(
-    () => auditHarmonyFit({ palette }),
-    [palette],
+    () => auditHarmonyFit({ palette, locked: lockedColors }),
+    [palette, lockedColors],
   );
 
   // Local carousel index + dismissed roles. Keyed off role so the set stays

@@ -18,6 +18,7 @@ import type {
   HarmonyOutlier,
   HarmonyType,
   ModeAudit,
+  Oklch,
   Palette,
   PairContrast,
   PaletteAudit,
@@ -290,15 +291,61 @@ export function auditPalette(input: { palette: Palette }): PaletteAudit {
 /** Chromatic / key roles considered when measuring palette cohesion. */
 const HARMONY_FIT_ROLES: Role[] = ["primary", "secondary", "accent"];
 
-/** Deviation normalizers: how far on each axis counts as "one unit" of drift. */
-const L_NORM = 0.18;
-const C_NORM = 0.1;
-const H_NORM = 40;
+/**
+ * Adaptive-threshold + suggestion constants. Outlier limits are derived from the
+ * palette's own spread (median absolute deviation), so a tight palette flags small
+ * drifts while a loose palette tolerates more — with a hard floor so a perfectly
+ * uniform palette still has a sane minimum tolerance. This robust (median/MAD)
+ * approach beats a fixed threshold off a mean, because the mean is itself dragged
+ * toward the very outlier being measured.
+ */
+const L_MAD_FLOOR = 0.015; // floor on the lightness MAD
+const C_MAD_FLOOR = 0.008; // floor on the chroma MAD
+const L_THR_FLOOR = 0.05; // min lightness deviation that counts as an outlier
+const C_THR_FLOOR = 0.025; // min chroma deviation that counts as an outlier
+const HUE_SPREAD_MIN = 30; // hue disharmony only checked in a mid spread band…
+const HUE_SPREAD_MAX = 90; // …(triadic/complementary wide spreads are intentional)
+const HUE_DIST_FLOOR = 60; // min wrapped hue distance from center to flag
+const LOCKED_BLEND = 0.6; // partial snap toward locked anchors (vs full snap)
+const L_CLAMP_MIN = 0.05; // never suggest pure black…
+const L_CLAMP_MAX = 0.95; // …or pure white
 
 /** Shortest angular distance between two hues, in degrees (0..180). */
 function hueDistance(a: number, b: number): number {
   const d = Math.abs(normalizeHue(a) - normalizeHue(b));
   return Math.min(d, 360 - d);
+}
+
+/** Median of a non-empty list. */
+function median(xs: number[]): number {
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
+}
+
+/** Median absolute deviation about `med`, floored so it never collapses to 0. */
+function medianAbsDev(xs: number[], med: number, floor: number): number {
+  return Math.max(
+    median(xs.map((x) => Math.abs(x - med))),
+    floor,
+  );
+}
+
+/** Circular mean of hues (degrees) via atan2 of summed unit vectors. */
+function circularMeanHue(hues: number[]): number {
+  let sumSin = 0;
+  let sumCos = 0;
+  for (const h of hues) {
+    const rad = (normalizeHue(h) * Math.PI) / 180;
+    sumSin += Math.sin(rad);
+    sumCos += Math.cos(rad);
+  }
+  return normalizeHue((Math.atan2(sumSin, sumCos) * 180) / Math.PI);
+}
+
+/** Largest wrapped hue distance of any hue from `center`. */
+function circularSpread(hues: number[], center: number): number {
+  return Math.max(...hues.map((h) => hueDistance(h, center)));
 }
 
 interface FitCandidate {
@@ -310,16 +357,33 @@ interface FitCandidate {
  * Detect chromatic roles that do not fit the rest of the palette.
  *
  * Unlike {@link auditHarmony} (which only checks hue offset against the expected
- * harmony), this computes a per-color OKLCH centroid — using a CIRCULAR MEAN for
- * hue so wrap-around hues (e.g. 359° and 1°) average correctly — and flags each
- * candidate that drifts too far on lightness or hue. Neutrals and status roles
- * are excluded so a single loud brand color can't be "corrected" toward gray.
- * The suggested swatch moves ONLY the dominant axis back to the centroid and is
- * resolved through the engine's color authority (no hand-written hex).
+ * harmony), this measures per-color cohesion in OKLCH using ROBUST statistics:
+ * per-channel **median + MAD** (median absolute deviation) rather than a mean and
+ * a fixed threshold. Two reasons that's better — and why it matches/extends the
+ * approach a leading commercial palette fixer uses:
+ *   1. The mean is dragged toward the very outlier you're hunting, so deviations
+ *      look smaller and a fix undershoots. The median ignores the outlier.
+ *   2. MAD makes the flag threshold ADAPTIVE: a tight palette flags small drifts,
+ *      a loose palette tolerates more (with a hard floor so uniform palettes still
+ *      have a sane minimum tolerance).
+ * Hue uses circular math throughout (atan2 mean + wrapped distance) so 359°/1°
+ * behave correctly. Neutrals and status roles are excluded so a single loud brand
+ * color can't be "corrected" toward gray.
  *
- * Pure + deterministic.
+ * Suggestions snap the offending axis toward the palette median — or, when the
+ * user has LOCKED colors, toward the locked colors' median (a {@link LOCKED_BLEND}
+ * partial snap, since locked anchors are the intended target), with suggested
+ * lightness clamped to [{@link L_CLAMP_MIN}, {@link L_CLAMP_MAX}]. Resolved through
+ * the engine's color authority (no hand-written hex). Pure + deterministic.
+ *
+ * @param input.locked Optional OKLCH colors the user has locked. When present,
+ *   their per-channel median becomes the snap target and the move is a partial
+ *   (60%) blend, mirroring "harmonize toward the colors you've committed to".
  */
-export function auditHarmonyFit(input: { palette: Palette }): {
+export function auditHarmonyFit(input: {
+  palette: Palette;
+  locked?: Oklch[];
+}): {
   outliers: HarmonyOutlier[];
 } {
   const roles = input.palette.light.roles;
@@ -334,77 +398,109 @@ export function auditHarmonyFit(input: { palette: Palette }): {
   // Need at least two colors to have a meaningful "rest of the palette".
   if (candidates.length < 2) return { outliers: [] };
 
-  // 2. Centroid: mean L, mean C, circular mean of hue (atan2 of summed unit
-  // vectors) so 359° and 1° average to ~0° rather than ~180°.
-  const n = candidates.length;
-  let sumL = 0;
-  let sumC = 0;
-  let sumSin = 0;
-  let sumCos = 0;
-  for (const { swatch } of candidates) {
-    sumL += swatch.oklch.l;
-    sumC += swatch.oklch.c;
-    const rad = (normalizeHue(swatch.oklch.h) * Math.PI) / 180;
-    sumSin += Math.sin(rad);
-    sumCos += Math.cos(rad);
-  }
-  const meanL = sumL / n;
-  const meanC = sumC / n;
-  const meanH = normalizeHue((Math.atan2(sumSin, sumCos) * 180) / Math.PI);
+  // 2. Robust per-channel centers + spreads over the candidate set.
+  const Ls = candidates.map((c) => c.swatch.oklch.l);
+  const Cs = candidates.map((c) => c.swatch.oklch.c);
+  const Hs = candidates.map((c) => normalizeHue(c.swatch.oklch.h));
 
-  // 3. Per-candidate deviations.
-  const deviations = candidates.map(({ role, swatch }) => ({
-    role,
-    swatch,
-    dL: Math.abs(swatch.oklch.l - meanL),
-    dC: Math.abs(swatch.oklch.c - meanC),
-    dH: hueDistance(swatch.oklch.h, meanH),
-  }));
+  const medL = median(Ls);
+  const medC = median(Cs);
+  const madL = medianAbsDev(Ls, medL, L_MAD_FLOOR);
+  const madC = medianAbsDev(Cs, medC, C_MAD_FLOOR);
+  const centerH = circularMeanHue(Hs);
+  const spreadH = candidates.length > 1 ? circularSpread(Hs, centerH) : 0;
 
-  const maxDH = Math.max(...deviations.map((d) => d.dH));
+  // Adaptive thresholds: scale with the palette's own spread, floored.
+  const thrL = Math.max(2 * madL, L_THR_FLOOR);
+  const thrC = Math.max(2 * madC, C_THR_FLOOR);
+
+  // 3. Snap targets. Default to the palette medians; if the user locked colors,
+  // aim L/C at the LOCKED colors' medians instead (the committed anchors).
+  const locked = (input.locked ?? []).filter(Boolean);
+  const hasLocked = locked.length > 0;
+  const targetL = hasLocked ? median(locked.map((o) => o.l)) : medL;
+  const targetC = hasLocked ? median(locked.map((o) => o.c)) : medC;
+  const targetH = hasLocked
+    ? circularMeanHue(locked.map((o) => normalizeHue(o.h)))
+    : centerH;
+  // Blend a locked swatch's own correction partially; everything else snaps fully.
+  const blend = (from: number, to: number, role: Role) =>
+    hasLocked && !isLockedRole(role, locked, roles)
+      ? from + (to - from) * LOCKED_BLEND
+      : to;
 
   const outliers: HarmonyOutlier[] = [];
-  for (const d of deviations) {
-    // 4. Flag on lightness drift, or on being the single most hue-divergent color.
-    const flagged = d.dL > L_NORM || (d.dH > H_NORM && d.dH === maxDH);
-    if (!flagged) continue;
+  for (const { role, swatch } of candidates) {
+    const { l, c, h } = swatch.oklch;
+    const dL = Math.abs(l - medL);
+    const dC = Math.abs(c - medC);
+    const dH = hueDistance(h, centerH);
 
-    // Dominant dimension = axis with the largest normalized deviation.
-    const normL = d.dL / L_NORM;
-    const normC = d.dC / C_NORM;
-    const normH = d.dH / H_NORM;
+    // 4. Flag rules (each adaptive): lightness drift, chroma drift, or — only in
+    // a mid hue-spread band (so deliberate triadic/complementary spreads aren't
+    // "fixed") — a lone hue that diverges past the palette's own spread.
+    const flagL = dL > thrL;
+    const flagC = dC > thrC;
+    const flagH =
+      spreadH > HUE_SPREAD_MIN &&
+      spreadH < HUE_SPREAD_MAX &&
+      dH > Math.max(spreadH, HUE_DIST_FLOOR);
+    if (!flagL && !flagC && !flagH) continue;
+
+    // Dominant dimension = axis with the largest deviation relative to its
+    // adaptive threshold (hue normalized against its own flag distance).
+    const sevL = flagL ? dL / thrL : 0;
+    const sevC = flagC ? dC / thrC : 0;
+    const sevH = flagH ? dH / Math.max(spreadH, HUE_DIST_FLOOR) : 0;
     let dimension: HarmonyOutlier["dimension"];
-    if (normL >= normC && normL >= normH) dimension = "lightness";
-    else if (normH >= normC) dimension = "hue";
+    if (sevL >= sevC && sevL >= sevH) dimension = "lightness";
+    else if (sevH >= sevC) dimension = "hue";
     else dimension = "chroma";
 
-    // 5. Reason keyed off the signed deviation; 6. suggested moves ONLY the
-    // dominant axis to the centroid value (the other two stay put), resolved
-    // through the engine.
-    const { l, c, h } = d.swatch.oklch;
+    // 5. Reason + 6. suggestion: move ONLY the dominant axis toward the target,
+    // clamp lightness, resolve through the engine.
     let reason: string;
     let suggested: Swatch;
     if (dimension === "lightness") {
       reason =
-        l < meanL ? "sits darker than the rest" : "sits lighter than the rest";
-      suggested = resolveSwatch(oklch(meanL, c, h));
+        l < medL ? "sits darker than the rest" : "sits lighter than the rest";
+      const nl = clampL(blend(l, targetL, role));
+      suggested = resolveSwatch(oklch(nl, c, h));
     } else if (dimension === "chroma") {
       reason =
-        c < meanC ? "more muted than the rest" : "more saturated than the rest";
-      suggested = resolveSwatch(oklch(l, meanC, h));
+        c < medC ? "more muted than the rest" : "more saturated than the rest";
+      const nc = Math.max(0.01, blend(c, targetC, role));
+      suggested = resolveSwatch(oklch(l, nc, h));
     } else {
       reason = "pulls toward a different hue than the rest";
-      suggested = resolveSwatch(oklch(l, c, meanH));
+      // Hue always snaps to the center (a partial hue blend reads as "still off").
+      suggested = resolveSwatch(oklch(l, c, targetH));
     }
 
-    outliers.push({
-      role: d.role,
-      reason,
-      dimension,
-      current: d.swatch,
-      suggested,
-    });
+    outliers.push({ role, reason, dimension, current: swatch, suggested });
   }
 
   return { outliers };
+}
+
+/** Clamp a suggested lightness away from pure black/white. */
+function clampL(l: number): number {
+  return Math.max(L_CLAMP_MIN, Math.min(L_CLAMP_MAX, l));
+}
+
+/** Whether this role's current color is (approximately) one of the locked anchors. */
+function isLockedRole(
+  role: Role,
+  locked: Oklch[],
+  roles: ThemePalette["roles"],
+): boolean {
+  const swatch = roles[role];
+  if (!swatch) return false;
+  const { l, c, h } = swatch.oklch;
+  return locked.some(
+    (o) =>
+      Math.abs(o.l - l) < 1e-3 &&
+      Math.abs(o.c - c) < 1e-3 &&
+      hueDistance(o.h, h) < 0.5,
+  );
 }
