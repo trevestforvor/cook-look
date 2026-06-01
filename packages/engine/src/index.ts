@@ -61,7 +61,12 @@ export { fixContrast } from "./contrast-fix.js";
 export { deriveDarkMode, deriveLightMode, extractSeeds } from "./darkmode.js";
 
 // Auditing.
-export { auditPalette, evaluatePair, expectedChromaticOffsets } from "./audit.js";
+export {
+  auditPalette,
+  auditHarmonyFit,
+  evaluatePair,
+  expectedChromaticOffsets,
+} from "./audit.js";
 
 // Recolor.
 export { recolor } from "./recolor.js";

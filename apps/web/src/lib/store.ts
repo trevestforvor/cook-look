@@ -2,18 +2,22 @@
 
 import { create } from "zustand";
 import {
+  adjustColor,
   clamp,
   fixContrast,
   generatePalette,
+  harmonyHues,
   harmonyOffsets,
   normalizeHue,
   resolveSwatch,
   parseToOklch,
+  type AdjustIntent,
   type ContrastFix,
   type ContrastTarget,
   type HarmonyType,
   type Oklch,
   type Palette,
+  type RampStep,
   type Role,
   type ThemeMode,
 } from "@chroma/engine";
@@ -203,6 +207,14 @@ export interface ChromaState {
   toggleMode: () => void;
   applyFix: (target?: ContrastTarget) => void;
   clearFix: () => void;
+  /** Whole-palette variation: adjust the base color along the given axes. */
+  applyAdjust: (intent: AdjustIntent) => void;
+  /** Freeze a role to a harmony-suggested color (locks it across rebuilds). */
+  applyHarmonyFix: (role: Role, suggested: Oklch) => void;
+  /** Deterministically rotate the base hue (keeps L,C) for a fresh variation. */
+  remixPalette: () => void;
+  /** Reorder the visible roles by light-theme swatch lightness or hue. */
+  sortPalette: (by: "lightness" | "hue") => void;
 
   // --- Part 2: AI design agent (drives the same palette state) ---
   brief: DesignBrief | null;
@@ -337,6 +349,48 @@ export const useChroma = create<ChromaState>((set, get) => ({
   },
 
   clearFix: () => set({ lastFix: null }),
+
+  applyAdjust: (intent) => {
+    const newBase = adjustColor({ color: get().base, intent }).after.oklch;
+    get().setBase(newBase);
+  },
+
+  applyHarmonyFix: (role, suggested) => {
+    set((s) => {
+      const roleOverrides: RoleOverrides = {
+        ...s.roleOverrides,
+        [role]: { light: suggested, dark: suggested },
+      };
+      return {
+        roleOverrides,
+        palette: build(
+          s.base,
+          s.harmony,
+          s.analogousSpan,
+          roleOverrides,
+          s.unrestrictedChroma,
+        ),
+      };
+    });
+  },
+
+  remixPalette: () => {
+    const base = get().base;
+    get().setBase({ l: base.l, c: base.c, h: normalizeHue(base.h + 47) });
+  },
+
+  sortPalette: (by) => {
+    set((s) => {
+      const roles = s.palette.light.roles;
+      const dim = by === "lightness" ? "l" : "h";
+      const withSwatch = s.visibleRoles.filter((r) => roles[r]);
+      const withoutSwatch = s.visibleRoles.filter((r) => !roles[r]);
+      const sorted = [...withSwatch].sort(
+        (a, b) => roles[a].oklch[dim] - roles[b].oklch[dim],
+      );
+      return { visibleRoles: [...sorted, ...withoutSwatch] };
+    });
+  },
 
   lockRole: (role) =>
     set((s) => ({
@@ -520,3 +574,62 @@ export const useChroma = create<ChromaState>((set, get) => ({
     }
   },
 }));
+
+/** OKLCH of a neutral-ramp step (the neutral family carries the brand tint). */
+function neutralStep(palette: Palette, step: RampStep): Oklch {
+  return palette.light.ramps.neutral.steps[step].oklch;
+}
+
+/**
+ * Engine-derived palette suggestions, grouped by category, for the
+ * "add a related color" UI. Every value comes from the engine — neutral ramp
+ * steps, {@link adjustColor} variants, and {@link harmonyHues} partners — so the
+ * UI never hand-writes hex or does color math. Used by the palette panel.
+ */
+export function paletteSuggestions(
+  palette: Palette,
+): { category: string; swatches: Oklch[] }[] {
+  const out: { category: string; swatches: Oklch[] }[] = [];
+
+  // Light Neutral — pale end of the (brand-tinted) neutral ramp.
+  out.push({
+    category: "Light Neutral",
+    swatches: ([50, 100, 200] as RampStep[]).map((s) => neutralStep(palette, s)),
+  });
+
+  // Dark Neutral — deep end of the neutral ramp.
+  out.push({
+    category: "Dark Neutral",
+    swatches: ([800, 900, 950] as RampStep[]).map((s) => neutralStep(palette, s)),
+  });
+
+  // Accent — saturation/lightness variants of the accent role.
+  const accent = palette.light.roles.accent.oklch;
+  out.push({
+    category: "Accent",
+    swatches: [
+      adjustColor({ color: accent, intent: { saturation: "more" } }).after.oklch,
+      adjustColor({ color: accent, intent: { saturation: "less", lightness: "lighter" } })
+        .after.oklch,
+      adjustColor({ color: accent, intent: { lightness: "darker" } }).after.oklch,
+    ],
+  });
+
+  // Harmony Partner — complement + triadic partners of the base hue, kept at the
+  // base's L,C so they read as siblings (engine computes the hues).
+  const base = palette.baseColor;
+  const complement = harmonyHues(base.h, "complementary")[1] ?? base.h;
+  const triad = harmonyHues(base.h, "triadic").slice(1);
+  const partnerHues = [complement, ...triad];
+  const seen = new Set<number>();
+  const partners: Oklch[] = [];
+  for (const h of partnerHues) {
+    const key = Math.round(h);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    partners.push({ l: base.l, c: base.c, h });
+  }
+  out.push({ category: "Harmony Partner", swatches: partners });
+
+  return out;
+}

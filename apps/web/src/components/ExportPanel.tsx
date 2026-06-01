@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { toCssVariables, toJSON, toTailwindConfig } from "@chroma/engine";
 import { useChroma } from "@/lib/store";
+import { Button, SegmentedControl } from "@/components/ui";
 
 type Tab = "css" | "tailwind" | "json";
 
@@ -51,40 +52,30 @@ export function ExportPanel() {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        {/* Tab buttons — min 36px height for touch targets */}
-        <div role="tablist" aria-label="Export format" className="flex gap-1">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              role="tab"
-              aria-selected={tab === t.id}
-              onClick={() => setTab(t.id)}
-              className={`btn-press min-h-[36px] rounded-md px-2.5 py-1 text-xs font-medium transition focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface-0 ${
-                tab === t.id
-                  ? "bg-ink-hi text-bg"
-                  : "text-ink-mid hover:text-ink-hi"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <SegmentedControl<Tab>
+          ariaLabel="Export format"
+          value={tab}
+          onChange={setTab}
+          options={TABS.map((t) => ({ value: t.id, label: t.label }))}
+        />
         <div className="flex gap-1.5">
-          <button
+          <Button
+            size="sm"
+            variant="secondary"
             onClick={copy}
             aria-label={copied ? "Copied to clipboard" : "Copy to clipboard"}
-            className="btn-press min-h-[36px] rounded-md border border-line px-2.5 py-1 text-xs text-ink-mid transition hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface-0"
           >
             {copied ? "Copied!" : "Copy"}
-          </button>
-          <button
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
             onClick={download}
             aria-label={`Download ${active.label}`}
-            className="btn-press min-h-[36px] rounded-md border border-line px-2.5 py-1 text-xs text-ink-mid transition hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface-0"
           >
             Download
-          </button>
+          </Button>
         </div>
       </div>
       <pre className="max-h-72 overflow-auto rounded-lg border border-line bg-surface-1 p-3 font-mono text-xs leading-relaxed text-ink-mid">

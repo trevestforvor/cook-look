@@ -7,7 +7,7 @@
  * harmony and lists any swatch that required gamut mapping.
  */
 import { apcaLc, apcaPasses, wcagPasses, wcagRatio } from "./accessibility.js";
-import { normalizeHue } from "./color.js";
+import { normalizeHue, oklch, resolveSwatch } from "./color.js";
 import {
   chromaticSeedHues,
   harmonyKind,
@@ -15,12 +15,14 @@ import {
 } from "./harmony.js";
 import type {
   HarmonyAudit,
+  HarmonyOutlier,
   HarmonyType,
   ModeAudit,
   Palette,
   PairContrast,
   PaletteAudit,
   PaletteWarning,
+  Role,
   Swatch,
   ThemePalette,
 } from "./types.js";
@@ -281,4 +283,128 @@ export function auditPalette(input: { palette: Palette }): PaletteAudit {
     passesBodyApca,
     warnings: compositionWarnings(palette, harmony),
   };
+}
+
+// --- Per-color harmony-fit outlier detection -------------------------------
+
+/** Chromatic / key roles considered when measuring palette cohesion. */
+const HARMONY_FIT_ROLES: Role[] = ["primary", "secondary", "accent"];
+
+/** Deviation normalizers: how far on each axis counts as "one unit" of drift. */
+const L_NORM = 0.18;
+const C_NORM = 0.1;
+const H_NORM = 40;
+
+/** Shortest angular distance between two hues, in degrees (0..180). */
+function hueDistance(a: number, b: number): number {
+  const d = Math.abs(normalizeHue(a) - normalizeHue(b));
+  return Math.min(d, 360 - d);
+}
+
+interface FitCandidate {
+  role: Role;
+  swatch: Swatch;
+}
+
+/**
+ * Detect chromatic roles that do not fit the rest of the palette.
+ *
+ * Unlike {@link auditHarmony} (which only checks hue offset against the expected
+ * harmony), this computes a per-color OKLCH centroid — using a CIRCULAR MEAN for
+ * hue so wrap-around hues (e.g. 359° and 1°) average correctly — and flags each
+ * candidate that drifts too far on lightness or hue. Neutrals and status roles
+ * are excluded so a single loud brand color can't be "corrected" toward gray.
+ * The suggested swatch moves ONLY the dominant axis back to the centroid and is
+ * resolved through the engine's color authority (no hand-written hex).
+ *
+ * Pure + deterministic.
+ */
+export function auditHarmonyFit(input: { palette: Palette }): {
+  outliers: HarmonyOutlier[];
+} {
+  const roles = input.palette.light.roles;
+
+  // 1. Candidates = chromatic/key roles, skipping any that are missing.
+  const candidates: FitCandidate[] = [];
+  for (const role of HARMONY_FIT_ROLES) {
+    const swatch = roles[role];
+    if (swatch) candidates.push({ role, swatch });
+  }
+
+  // Need at least two colors to have a meaningful "rest of the palette".
+  if (candidates.length < 2) return { outliers: [] };
+
+  // 2. Centroid: mean L, mean C, circular mean of hue (atan2 of summed unit
+  // vectors) so 359° and 1° average to ~0° rather than ~180°.
+  const n = candidates.length;
+  let sumL = 0;
+  let sumC = 0;
+  let sumSin = 0;
+  let sumCos = 0;
+  for (const { swatch } of candidates) {
+    sumL += swatch.oklch.l;
+    sumC += swatch.oklch.c;
+    const rad = (normalizeHue(swatch.oklch.h) * Math.PI) / 180;
+    sumSin += Math.sin(rad);
+    sumCos += Math.cos(rad);
+  }
+  const meanL = sumL / n;
+  const meanC = sumC / n;
+  const meanH = normalizeHue((Math.atan2(sumSin, sumCos) * 180) / Math.PI);
+
+  // 3. Per-candidate deviations.
+  const deviations = candidates.map(({ role, swatch }) => ({
+    role,
+    swatch,
+    dL: Math.abs(swatch.oklch.l - meanL),
+    dC: Math.abs(swatch.oklch.c - meanC),
+    dH: hueDistance(swatch.oklch.h, meanH),
+  }));
+
+  const maxDH = Math.max(...deviations.map((d) => d.dH));
+
+  const outliers: HarmonyOutlier[] = [];
+  for (const d of deviations) {
+    // 4. Flag on lightness drift, or on being the single most hue-divergent color.
+    const flagged = d.dL > L_NORM || (d.dH > H_NORM && d.dH === maxDH);
+    if (!flagged) continue;
+
+    // Dominant dimension = axis with the largest normalized deviation.
+    const normL = d.dL / L_NORM;
+    const normC = d.dC / C_NORM;
+    const normH = d.dH / H_NORM;
+    let dimension: HarmonyOutlier["dimension"];
+    if (normL >= normC && normL >= normH) dimension = "lightness";
+    else if (normH >= normC) dimension = "hue";
+    else dimension = "chroma";
+
+    // 5. Reason keyed off the signed deviation; 6. suggested moves ONLY the
+    // dominant axis to the centroid value (the other two stay put), resolved
+    // through the engine.
+    const { l, c, h } = d.swatch.oklch;
+    let reason: string;
+    let suggested: Swatch;
+    if (dimension === "lightness") {
+      reason =
+        l < meanL ? "sits darker than the rest" : "sits lighter than the rest";
+      suggested = resolveSwatch(oklch(meanL, c, h));
+    } else if (dimension === "chroma") {
+      reason =
+        c < meanC ? "more muted than the rest" : "more saturated than the rest";
+      suggested = resolveSwatch(oklch(l, meanC, h));
+    } else {
+      reason = "pulls toward a different hue than the rest";
+      suggested = resolveSwatch(oklch(l, c, meanH));
+    }
+
+    outliers.push({
+      role: d.role,
+      reason,
+      dimension,
+      current: d.swatch,
+      suggested,
+    });
+  }
+
+  return { outliers };
 }

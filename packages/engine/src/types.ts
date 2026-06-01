@@ -308,6 +308,19 @@ export interface HarmonyAudit {
   singleHue: boolean;
 }
 
+/**
+ * A single chromatic role that does not fit the rest of the palette, with the
+ * dominant axis (lightness/chroma/hue) it deviates on and a suggested swatch
+ * that pulls only that axis back to the palette centroid.
+ */
+export interface HarmonyOutlier {
+  role: Role;
+  reason: string;
+  dimension: "lightness" | "chroma" | "hue";
+  current: Swatch;
+  suggested: Swatch;
+}
+
 /** Per-mode audit. */
 export interface ModeAudit {
   mode: ThemeMode;

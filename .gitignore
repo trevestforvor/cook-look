@@ -28,3 +28,6 @@ pnpm-debug.log*
 coverage/
 .vercel
 .gstack/
+
+# runtime lock
+.claude/scheduled_tasks.lock

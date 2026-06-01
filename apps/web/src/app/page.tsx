@@ -3,11 +3,15 @@
 import { ColorWheel } from "@/components/ColorWheel";
 import { Controls } from "@/components/Controls";
 import { PaletteGrid } from "@/components/PaletteGrid";
+import { RemixBar } from "@/components/RemixBar";
 import { AccessibilityPanel } from "@/components/AccessibilityPanel";
 import { ExportPanel } from "@/components/ExportPanel";
 import { PreviewPanel } from "@/components/PreviewPanel";
 import { AssistPanel } from "@/components/AssistPanel";
 import { DesignBriefCard } from "@/components/DesignBriefCard";
+import { HarmonyCheckPanel } from "@/components/HarmonyCheckPanel";
+import { VariationsPanel } from "@/components/VariationsPanel";
+import { SmartSuggestionsPanel } from "@/components/SmartSuggestionsPanel";
 import { ThemeSync } from "@/components/ThemeSync";
 import { ModeToggle } from "@/components/ModeToggle";
 import { Panel } from "@/components/ui";
@@ -34,7 +38,10 @@ export default function Page() {
         <section className="xl:col-span-6 space-y-5">
           <RailLabel>Palette</RailLabel>
           <Panel variant="hero">
-            <PaletteGrid />
+            <div className="flex flex-col gap-5">
+              <RemixBar />
+              <PaletteGrid />
+            </div>
           </Panel>
           <Panel>
             <PreviewPanel />
@@ -44,9 +51,12 @@ export default function Page() {
         {/* Right rail — Refine & Ship */}
         <section className="xl:col-span-3 space-y-5">
           <RailLabel>Refine &amp; Ship</RailLabel>
+          <HarmonyCheckPanel />
+          <VariationsPanel />
           <Panel>
             <AccessibilityPanel />
           </Panel>
+          <SmartSuggestionsPanel />
           <Panel>
             <ExportPanel />
           </Panel>
