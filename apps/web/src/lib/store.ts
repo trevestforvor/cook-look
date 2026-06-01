@@ -210,7 +210,14 @@ export interface ChromaState {
   toggleMode: () => void;
   applyFix: (target?: ContrastTarget) => void;
   clearFix: () => void;
-  /** Whole-palette variation: adjust the base color along the given axes. */
+  /**
+   * Reversible whole-palette variations: recompute from `baseline` by applying
+   * the net `intents` (an accumulator owned by the Variations panel), so the
+   * effect is non-destructive — Muted→Vibrant returns to the baseline and
+   * repeated Muted can never ratchet into an unrecoverable gray.
+   */
+  applyVariations: (baseline: Palette, intents: AdjustIntent[]) => void;
+  /** One-shot whole-palette adjust (programmatic / agent use). */
   applyAdjust: (intent: AdjustIntent) => void;
   /** Freeze a role to a harmony-suggested color (locks it across rebuilds). */
   applyHarmonyFix: (role: Role, suggested: Oklch) => void;
@@ -358,11 +365,29 @@ export const useChroma = create<ChromaState>((set, get) => ({
 
   clearFix: () => set({ lastFix: null }),
 
+  applyVariations: (baseline, intents) => {
+    set((s) => {
+      // Reversible, non-destructive variations: ALWAYS recompute from a stable
+      // baseline palette by applying the net accumulated intents, rather than
+      // compounding on the live (already-adjusted) palette. This is what makes
+      // Muted→Vibrant return to the start and prevents repeated Muted from
+      // ratcheting chroma to an unrecoverable gray. Locked roles are re-frozen
+      // on top so a Variation never disturbs a pinned color.
+      let p = baseline;
+      for (const intent of intents) {
+        p = adjustPalette({ palette: p, intent });
+      }
+      return {
+        base: p.baseColor,
+        palette: applyOverrides(p, s.roleOverrides),
+        lastFix: null,
+      };
+    });
+  },
+
   applyAdjust: (intent) => {
     set((s) => {
-      // Adjust the WHOLE palette (every family's seed), not just the base, so
-      // all unlocked roles move together. Locked roles are then re-frozen on
-      // top via applyOverrides, so a Variation never disturbs a pinned color.
+      // One-shot whole-palette adjust (kept for the agent / programmatic use).
       const adjusted = adjustPalette({ palette: s.palette, intent });
       return {
         base: adjusted.baseColor,

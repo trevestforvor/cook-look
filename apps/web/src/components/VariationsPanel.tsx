@@ -1,78 +1,135 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
-import { adjustColor, resolveSwatch, type AdjustIntent } from "@chroma/engine";
-import { Panel, PanelHeader } from "@/components/ui";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { adjustPalette, type AdjustIntent } from "@chroma/engine";
+import { Button, Panel, PanelHeader } from "@/components/ui";
 import { useChroma } from "@/lib/store";
 
 /**
- * VariationsPanel — palette-wide adjustments.
+ * VariationsPanel — reversible, palette-wide adjustments.
  *
- * Intended rail: the RIGHT rail (the adjustments / tools column alongside the
- * palette grid).
+ * Intended rail: the RIGHT rail (adjustments column beside the palette grid).
  *
- * Color rule: every color VALUE shown here is produced by the engine. The
- * mini-previews call {@link adjustColor} on the live palette's role OKLCH values
- * and convert the result to a display string via {@link resolveSwatch} (which
- * owns OKLCH→hex). No hex is hand-written and no color math happens in React.
+ * How it stays reversible (the important part): the panel keeps a frozen
+ * BASELINE palette plus a signed net amount per axis (saturation / lightness /
+ * temperature). Every click recomputes the palette from the baseline by applying
+ * the net intents — it never compounds on the already-adjusted palette. So
+ * Muted→Vibrant returns to the baseline, and repeated Muted can't ratchet chroma
+ * into an unrecoverable gray (the net is clamped). If the palette changes from
+ * elsewhere (wheel, harmony, a fix), the baseline re-syncs and the nets reset.
+ *
+ * Color rule: every value comes from the engine ({@link adjustPalette}); the
+ * 3-dot previews run the SAME path as a click, so preview matches result.
  */
+
+type Axis = "sat" | "light" | "temp";
 
 type VariationChip = {
   readonly key: string;
   readonly label: string;
-  /** The adjustment axis for this chip (combined with the live intensity). */
-  readonly intent: AdjustIntent;
+  readonly axis: Axis;
+  /** +1 nudges the axis up (vibrant/lighter/warmer); -1 down. */
+  readonly dir: 1 | -1;
 };
 
 const CHIPS: readonly VariationChip[] = [
-  { key: "vibrant", label: "Vibrant", intent: { saturation: "more" } },
-  { key: "muted", label: "Muted", intent: { saturation: "less" } },
-  { key: "lighter", label: "Lighter", intent: { lightness: "lighter" } },
-  { key: "darker", label: "Darker", intent: { lightness: "darker" } },
-  { key: "warmer", label: "Warmer", intent: { temperature: "warmer" } },
-  { key: "cooler", label: "Cooler", intent: { temperature: "cooler" } },
+  { key: "vibrant", label: "Vibrant", axis: "sat", dir: 1 },
+  { key: "muted", label: "Muted", axis: "sat", dir: -1 },
+  { key: "lighter", label: "Lighter", axis: "light", dir: 1 },
+  { key: "darker", label: "Darker", axis: "light", dir: -1 },
+  { key: "warmer", label: "Warmer", axis: "temp", dir: 1 },
+  { key: "cooler", label: "Cooler", axis: "temp", dir: -1 },
 ] as const;
 
 const DEFAULT_INTENSITY = 0.4;
 
+type Net = { sat: number; light: number; temp: number };
+const ZERO: Net = { sat: 0, light: 0, temp: 0 };
+
+// Per-axis clamps on the accumulated net. The lower saturation bound keeps Muted
+// from driving chroma to gray (factor = 1 − amount·1.5, so −0.5 → 0.25, never 0).
+const CLAMP: Record<Axis, [number, number]> = {
+  sat: [-0.5, 2],
+  light: [-0.6, 0.6],
+  temp: [-1, 1],
+};
+
+const clampAxis = (axis: Axis, v: number) =>
+  Math.min(CLAMP[axis][1], Math.max(CLAMP[axis][0], v));
+
+/** Turn the signed net into one intent per non-zero axis (applied from baseline). */
+function netToIntents(net: Net): AdjustIntent[] {
+  const out: AdjustIntent[] = [];
+  if (net.sat !== 0)
+    out.push({ saturation: net.sat > 0 ? "more" : "less", amount: Math.abs(net.sat) });
+  if (net.light !== 0)
+    out.push({ lightness: net.light > 0 ? "lighter" : "darker", amount: Math.abs(net.light) });
+  if (net.temp !== 0)
+    out.push({ temperature: net.temp > 0 ? "warmer" : "cooler", amount: Math.abs(net.temp) });
+  return out;
+}
+
 export function VariationsPanel() {
-  // Read the live role OKLCH values straight off the engine palette. The
-  // light-mode roles seed the previews; the adjustment itself runs through the
-  // store's base color (applyAdjust), which rebuilds both modes.
-  const roles = useChroma((s) => s.palette.light.roles);
-  const applyAdjust = useChroma((s) => s.applyAdjust);
+  const livePalette = useChroma((s) => s.palette);
+  const applyVariations = useChroma((s) => s.applyVariations);
 
   const [intensity, setIntensity] = useState(DEFAULT_INTENSITY);
+  const [net, setNet] = useState<Net>(ZERO);
   const [activeKey, setActiveKey] = useState<string | null>(null);
+
+  // The baseline we vary FROM, and the last palette WE produced (to tell our own
+  // updates apart from external edits).
+  const baselineRef = useRef(livePalette);
+  const lastProducedRef = useRef(livePalette);
+
+  // External change (wheel / harmony / fix / suggestion) → re-baseline + reset.
+  useEffect(() => {
+    if (livePalette !== lastProducedRef.current) {
+      baselineRef.current = livePalette;
+      lastProducedRef.current = livePalette;
+      setNet(ZERO);
+      setActiveKey(null);
+    }
+  }, [livePalette]);
 
   const sliderId = useId();
   const pct = Math.round(intensity * 100);
 
-  // Three representative role colors (primary / secondary / accent) seed the
-  // 3-dot previews. These are engine OKLCH values, never hand-written.
-  const seeds = useMemo(
-    () => [roles.primary.oklch, roles.secondary.oklch, roles.accent.oklch],
-    [roles.primary, roles.secondary, roles.accent],
-  );
-
-  // Memoized 3-dot previews per chip at the current intensity. Each dot is the
-  // engine's adjustColor result, converted to a display hex by resolveSwatch.
-  const previews = useMemo(() => {
-    const map: Record<string, string[]> = {};
-    for (const chip of CHIPS) {
-      const intent: AdjustIntent = { ...chip.intent, amount: intensity };
-      map[chip.key] = seeds.map((color) => {
-        const after = adjustColor({ color, intent }).after.oklch;
-        return resolveSwatch(after).hex;
-      });
-    }
-    return map;
-  }, [seeds, intensity]);
+  const apply = (next: Net, key: string | null) => {
+    applyVariations(baselineRef.current, netToIntents(next));
+    lastProducedRef.current = useChroma.getState().palette;
+    setNet(next);
+    setActiveKey(key);
+  };
 
   const handleChip = (chip: VariationChip) => {
-    setActiveKey(chip.key);
-    applyAdjust({ ...chip.intent, amount: intensity });
+    const cur = net[chip.axis];
+    const next = clampAxis(chip.axis, cur + chip.dir * intensity);
+    apply({ ...net, [chip.axis]: next }, chip.key);
   };
+
+  const reset = () => apply(ZERO, null);
+  const dirty = net.sat !== 0 || net.light !== 0 || net.temp !== 0;
+
+  // 3-dot previews: run the SAME adjustPalette path a click would, from the
+  // baseline at the CURRENT net plus one more step of this chip, then read
+  // primary/secondary/accent. Preview therefore matches the click result.
+  const previews = useMemo(() => {
+    const base = baselineRef.current;
+    const map: Record<string, string[]> = {};
+    for (const chip of CHIPS) {
+      const cur = net[chip.axis];
+      const next = clampAxis(chip.axis, cur + chip.dir * intensity);
+      const p = applyVariationsPreview(base, { ...net, [chip.axis]: next });
+      map[chip.key] = [
+        p.light.roles.primary.hex,
+        p.light.roles.secondary.hex,
+        p.light.roles.accent.hex,
+      ];
+    }
+    return map;
+    // livePalette in deps so previews refresh after re-baseline.
+  }, [net, intensity, livePalette]);
 
   return (
     <Panel>
@@ -86,7 +143,11 @@ export function VariationsPanel() {
         >
           {CHIPS.map((chip) => {
             const dots = previews[chip.key] ?? [];
-            const isActive = activeKey === chip.key;
+            // Active = this axis is currently pushed in this chip's direction.
+            const axisNet = net[chip.axis];
+            const isActive =
+              activeKey === chip.key ||
+              (axisNet !== 0 && Math.sign(axisNet) === chip.dir);
             return (
               <button
                 key={chip.key}
@@ -148,9 +209,40 @@ export function VariationsPanel() {
             aria-valuetext={`${pct} percent`}
           />
         </div>
+
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-[var(--text-3)]">
+            {dirty ? "Adjusted from your palette" : "Matches your palette"}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={reset}
+            disabled={!dirty}
+            aria-label="Reset variations to your palette"
+          >
+            Reset
+          </Button>
+        </div>
       </div>
     </Panel>
   );
+}
+
+/**
+ * Pure preview of what the net would produce, mirroring the store's
+ * applyVariations loop (baseline → adjustPalette per intent). Kept here so the
+ * 3-dot previews are exactly the click result, with no store mutation.
+ */
+function applyVariationsPreview(
+  baseline: Parameters<typeof adjustPalette>[0]["palette"],
+  net: Net,
+) {
+  let p = baseline;
+  for (const intent of netToIntents(net)) {
+    p = adjustPalette({ palette: p, intent });
+  }
+  return p;
 }
 
 export default VariationsPanel;
