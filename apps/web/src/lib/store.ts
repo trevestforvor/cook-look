@@ -660,16 +660,30 @@ export interface PaletteSuggestionGroup {
   swatches: Oklch[];
 }
 
+/** Shortest angular hue distance, 0..180. */
+function hueGap(a: number, b: number): number {
+  const d = Math.abs(normalizeHue(a) - normalizeHue(b));
+  return Math.min(d, 360 - d);
+}
+
 /**
  * Engine-derived palette suggestions, grouped by category, for the
  * "add a related color" UI. Every value comes from the engine — neutral ramp
  * steps, {@link adjustColor} variants, and {@link harmonyHues} partners — so the
- * UI never hand-writes hex or does color math. Used by the palette panel.
+ * UI never hand-writes hex or does color math.
+ *
+ * `existingHues` are the hues already present (brand roles + the colors the user
+ * has added). Brand-targeted suggestions whose hue is already in the palette are
+ * dropped, so a color you just added stops being suggested and a fresh candidate
+ * takes its place. Pass the current custom-swatch hues so the list recalculates
+ * live as colors are added.
  */
 export function paletteSuggestions(
   palette: Palette,
+  existingHues: number[] = [],
 ): PaletteSuggestionGroup[] {
   const out: PaletteSuggestionGroup[] = [];
+  const HUE_DEDUP = 12; // degrees — treat hues within this as "already present"
 
   // Light Neutral — pale end of the (brand-tinted) neutral ramp. Applies to the
   // SURFACE role (the light ground), not a new brand color.
@@ -686,8 +700,31 @@ export function paletteSuggestions(
     swatches: ([800, 900, 950] as RampStep[]).map((s) => neutralStep(palette, s)),
   });
 
-  // Accent — saturation/lightness variants of the accent role. Added as a brand
-  // color (it's brand-ish, not a ground).
+  // Hues already in the palette (brand roles + user-added). A suggested hue is
+  // suppressed if it's within HUE_DEDUP of any of these — so added colors drop
+  // out and the next distinct candidate surfaces.
+  const taken = [
+    palette.light.roles.primary.oklch.h,
+    palette.light.roles.secondary.oklch.h,
+    palette.light.roles.accent.oklch.h,
+    ...existingHues,
+  ];
+  const isTaken = (h: number) => taken.some((t) => hueGap(t, h) < HUE_DEDUP);
+  const distinct = (cands: Oklch[]): Oklch[] => {
+    const kept: Oklch[] = [];
+    for (const c of cands) {
+      if (isTaken(c.h)) continue;
+      if (kept.some((k) => hueGap(k.h, c.h) < HUE_DEDUP)) continue;
+      kept.push(c);
+      taken.push(c.h); // also dedup within this batch
+    }
+    return kept;
+  };
+
+  // Accent — saturation/lightness variants of the accent role (same hue family),
+  // de-duped against what's present. These are tonal variants, so dedup by the
+  // full color rather than hue alone is unnecessary; keep all that aren't the
+  // accent's own hue-twins already shown elsewhere.
   const accent = palette.light.roles.accent.oklch;
   out.push({
     category: "Accent",
@@ -700,20 +737,20 @@ export function paletteSuggestions(
     ],
   });
 
-  // Harmony Partner — complement + triadic partners of the base hue, kept at the
-  // base's L,C so they read as siblings (engine computes the hues).
+  // Harmony Partner — distinct hues around the wheel (complement, triadic,
+  // tetradic, split-complement), at the base's L,C so they read as siblings.
+  // Generating a wider candidate pool means that as partners get added, fresh
+  // distinct hues keep surfacing instead of the list going empty.
   const base = palette.baseColor;
-  const complement = harmonyHues(base.h, "complementary")[1] ?? base.h;
-  const triad = harmonyHues(base.h, "triadic").slice(1);
-  const partnerHues = [complement, ...triad];
-  const seen = new Set<number>();
-  const partners: Oklch[] = [];
-  for (const h of partnerHues) {
-    const key = Math.round(h);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    partners.push({ l: base.l, c: base.c, h });
-  }
+  const candidateHues = [
+    ...harmonyHues(base.h, "triadic").slice(1),
+    ...harmonyHues(base.h, "complementary").slice(1),
+    ...harmonyHues(base.h, "tetradic").slice(1),
+    ...harmonyHues(base.h, "split-complementary").slice(1),
+  ];
+  const partners = distinct(
+    candidateHues.map((h) => ({ l: base.l, c: base.c, h })),
+  );
   out.push({ category: "Harmony Partner", target: "brand", swatches: partners });
 
   return out;

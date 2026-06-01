@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Panel, PanelHeader, IconButton } from "@/components/ui";
 import { useChroma, paletteSuggestions } from "@/lib/store";
-import { resolveSwatch } from "@chroma/engine";
+import { resolveSwatch, normalizeHue } from "@chroma/engine";
 import type { Oklch } from "@chroma/engine";
 
 /**
@@ -34,6 +34,7 @@ function rotate<T>(arr: readonly T[], offset: number): T[] {
 
 export function SmartSuggestionsPanel() {
   const palette = useChroma((s) => s.palette);
+  const customSwatches = useChroma((s) => s.customSwatches);
   const addCustomSwatch = useChroma((s) => s.addCustomSwatch);
   const setRoleColor = useChroma((s) => s.setRoleColor);
 
@@ -41,7 +42,18 @@ export function SmartSuggestionsPanel() {
   // random/time at render, so SSR and the first client render agree.
   const [shuffleTick, setShuffleTick] = useState(0);
 
-  const groups = useMemo(() => paletteSuggestions(palette), [palette]);
+  // Feed the hues already in the palette (base + every custom color) so that
+  // once a suggestion is added it drops out and a fresh distinct hue replaces
+  // it. Recomputes live as colors are added/removed.
+  const existingHues = useMemo(
+    () => customSwatches.map((c) => normalizeHue(palette.baseColor.h + c.hueOffset)),
+    [customSwatches, palette.baseColor.h],
+  );
+
+  const groups = useMemo(
+    () => paletteSuggestions(palette, existingHues),
+    [palette, existingHues],
+  );
 
   // Global rotation reorders the groups; a per-group offset (index + tick)
   // shifts each group's swatch order differently on every shuffle.
