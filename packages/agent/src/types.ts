@@ -150,6 +150,8 @@ export interface GeneratePaletteInput {
   lightness?: LightnessLevel;
   /** Analogous span in degrees, when harmony is "analogous". */
   analogousSpan?: number;
+  /** Allow brand chroma beyond the ~0.37 sRGB cap (rarely needed; default false). */
+  unrestrictedChroma?: boolean;
 }
 
 /** Perceptually adjust the whole palette (engine re-derives all values). */

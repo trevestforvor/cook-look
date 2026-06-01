@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { toCssVariables, toJSON, toTailwindConfig } from "@chroma/engine";
 import { useChroma } from "@/lib/store";
+import { Button, SegmentedControl } from "@/components/ui";
 
 type Tab = "css" | "tailwind" | "json";
 
@@ -51,38 +52,33 @@ export function ExportPanel() {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <div className="flex gap-1">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
-                tab === t.id
-                  ? "bg-neutral-100 text-neutral-900"
-                  : "text-neutral-400 hover:text-neutral-200"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <SegmentedControl<Tab>
+          ariaLabel="Export format"
+          value={tab}
+          onChange={setTab}
+          options={TABS.map((t) => ({ value: t.id, label: t.label }))}
+        />
         <div className="flex gap-1.5">
-          <button
+          <Button
+            size="sm"
+            variant="secondary"
             onClick={copy}
-            className="rounded-md border border-neutral-700 px-2.5 py-1 text-xs text-neutral-200 hover:bg-neutral-800"
+            aria-label={copied ? "Copied to clipboard" : "Copy to clipboard"}
           >
             {copied ? "Copied!" : "Copy"}
-          </button>
-          <button
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
             onClick={download}
-            className="rounded-md border border-neutral-700 px-2.5 py-1 text-xs text-neutral-200 hover:bg-neutral-800"
+            aria-label={`Download ${active.label}`}
           >
             Download
-          </button>
+          </Button>
         </div>
       </div>
-      <pre className="max-h-72 overflow-auto rounded-lg border border-neutral-800 bg-neutral-950 p-3 font-mono text-[11px] leading-relaxed text-neutral-300">
+      <pre className="max-h-72 overflow-auto rounded-lg border border-line bg-surface-1 p-3 font-mono text-xs leading-relaxed text-ink-mid">
         {content}
       </pre>
     </div>

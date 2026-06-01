@@ -1,18 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { HarmonyType } from "@chroma/engine";
-import { useChroma } from "@/lib/store";
+import { useEffect, useRef, useState } from "react";
+import { resolveSwatch, type HarmonyType } from "@chroma/engine";
+import { useChroma, SRGB_MAX_C, UNRESTRICTED_MAX_C } from "@/lib/store";
+import { useRafThrottle } from "@/lib/use-raf-throttle";
+import { Dropdown } from "@/components/Dropdown";
+import { Slider } from "@/components/Slider";
 
 const HARMONIES: { value: HarmonyType; label: string }[] = [
   { value: "complementary", label: "Complementary" },
   { value: "split-complementary", label: "Split-complementary" },
+  { value: "double-split-complementary", label: "Double-split-complementary" },
   { value: "analogous", label: "Analogous" },
   { value: "monochromatic", label: "Monochromatic" },
   { value: "triadic", label: "Triadic" },
   { value: "tetradic", label: "Tetradic" },
   { value: "square", label: "Square" },
   { value: "rectangular", label: "Rectangular" },
+  { value: "compound", label: "Compound" },
+  { value: "shades", label: "Shades" },
 ];
 
 export function Controls() {
@@ -21,20 +27,35 @@ export function Controls() {
   const span = useChroma((s) => s.analogousSpan);
   const setHarmony = useChroma((s) => s.setHarmony);
   const setSpan = useChroma((s) => s.setSpan);
+  const setSpanLive = useChroma((s) => s.setSpanLive);
   const setBase = useChroma((s) => s.setBase);
+  const setBaseLive = useChroma((s) => s.setBaseLive);
   const setBaseFromString = useChroma((s) => s.setBaseFromString);
+  const unrestricted = useChroma((s) => s.unrestrictedChroma);
+  const setUnrestrictedChroma = useChroma((s) => s.setUnrestrictedChroma);
+  const maxC = unrestricted ? UNRESTRICTED_MAX_C : SRGB_MAX_C;
+
+  // While dragging a slider, update only the cheap "live" state (no palette
+  // rebuild), coalesced to one frame; commit the full rebuild once on release.
+  const liveBase = useRafThrottle(setBaseLive);
+  const liveSpan = useRafThrottle(setSpanLive);
+  const pendingC = useRef(base.c);
+  const pendingSpan = useRef(span);
 
   const baseHex = useChroma((s) => s.palette.baseColor);
-  const baseSwatchHex = useChroma((s) => s.palette.light.roles.primary.hex);
+  // The field shows the actual BASE color you set (round-trips your input), not
+  // the derived primary role swatch (which is a fixed mid-tone ramp step and
+  // would otherwise "rewrite" your hex to a different lightness/chroma).
+  const baseColorHex = resolveSwatch(baseHex).hex;
 
   const [hexInput, setHexInput] = useState("");
   const [invalid, setInvalid] = useState(false);
 
-  // Keep the text field in sync with the wheel-derived base color.
+  // Keep the text field in sync with the committed base color.
   useEffect(() => {
-    setHexInput(baseSwatchHex);
+    setHexInput(baseColorHex);
     setInvalid(false);
-  }, [baseSwatchHex]);
+  }, [baseColorHex]);
 
   const commitHex = () => {
     const ok = setBaseFromString(hexInput);
@@ -48,9 +69,9 @@ export function Controls() {
           <input
             aria-label="Base color picker"
             type="color"
-            value={baseSwatchHex}
+            value={baseColorHex}
             onChange={(e) => setBaseFromString(e.target.value)}
-            className="h-9 w-10 cursor-pointer rounded border border-neutral-700 bg-transparent"
+            className="h-9 w-10 cursor-pointer rounded border border-line bg-transparent"
           />
           <input
             aria-label="Base color hex"
@@ -59,53 +80,76 @@ export function Controls() {
             onBlur={commitHex}
             onKeyDown={(e) => e.key === "Enter" && commitHex()}
             spellCheck={false}
-            className={`w-full rounded border bg-neutral-900 px-2 py-1.5 font-mono text-sm text-neutral-100 outline-none ${
-              invalid ? "border-red-500" : "border-neutral-700"
-            }`}
+            className="w-full rounded border bg-surface-2 px-2 py-1.5 font-mono text-sm text-ink-hi outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-surface-0"
+            style={{ borderColor: invalid ? "var(--danger)" : "var(--border)" }}
           />
         </div>
-        <p className="font-mono text-[11px] text-neutral-500">
+        <p className="font-mono text-xs text-ink-lo">
           oklch({Math.round(baseHex.l * 100)}% {baseHex.c.toFixed(3)}{" "}
           {Math.round(baseHex.h)})
         </p>
       </Field>
 
       <Field label="Harmony">
-        <select
+        <Dropdown
+          aria-label="Harmony"
           value={harmony}
-          onChange={(e) => setHarmony(e.target.value as HarmonyType)}
-          className="w-full rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm text-neutral-100 outline-none"
-        >
-          {HARMONIES.map((h) => (
-            <option key={h.value} value={h.value}>
-              {h.label}
-            </option>
-          ))}
-        </select>
-      </Field>
-
-      <Field label={`Chroma (OKLCH C) — ${base.c.toFixed(3)}`}>
-        <input
-          type="range"
-          min={0}
-          max={0.37}
-          step={0.005}
-          value={base.c}
-          onChange={(e) => setBase({ ...base, c: Number(e.target.value) })}
-          className="w-full accent-blue-500"
+          options={HARMONIES}
+          onChange={(v) => setHarmony(v as HarmonyType)}
         />
       </Field>
 
-      {harmony === "analogous" && (
-        <Field label={`Analogous span — ±${span}°`}>
+      <Field
+        label="Chroma (OKLCH C)"
+        value={<span className="font-mono">{base.c.toFixed(3)}</span>}
+      >
+        <Slider
+          aria-label="Chroma"
+          min={0}
+          max={maxC}
+          step={0.005}
+          value={base.c}
+          trackGradient={`linear-gradient(to right, oklch(${base.l} 0 ${base.h}), oklch(${base.l} ${maxC} ${base.h}))`}
+          onChange={(e) => {
+            const c = Number(e.target.value);
+            pendingC.current = c;
+            liveBase({ ...base, c });
+          }}
+          onPointerUp={() => setBase({ ...base, c: pendingC.current })}
+          onKeyUp={() => setBase({ ...base, c: pendingC.current })}
+        />
+        <label
+          className="mt-1 flex cursor-pointer items-center gap-2 text-xs text-ink-lo"
+          title="Allow chroma beyond the sRGB-safe cap (colors past it gamut-map for display)."
+        >
           <input
-            type="range"
+            type="checkbox"
+            checked={unrestricted}
+            onChange={(e) => setUnrestrictedChroma(e.target.checked)}
+            className="h-3.5 w-3.5 accent-accent"
+          />
+          <span>Unrestricted gamut</span>
+        </label>
+      </Field>
+
+      {harmony === "analogous" && (
+        <Field
+          label="Analogous span"
+          value={<span className="font-mono">±{span}°</span>}
+        >
+          <Slider
+            aria-label="Analogous span"
             min={10}
             max={60}
             step={1}
             value={span}
-            onChange={(e) => setSpan(Number(e.target.value))}
-            className="w-full accent-blue-500"
+            onChange={(e) => {
+              const s = Number(e.target.value);
+              pendingSpan.current = s;
+              liveSpan(s);
+            }}
+            onPointerUp={() => setSpan(pendingSpan.current)}
+            onKeyUp={() => setSpan(pendingSpan.current)}
           />
         </Field>
       )}
@@ -115,15 +159,18 @@ export function Controls() {
 
 function Field({
   label,
+  value,
   children,
 }: {
   label: string;
+  value?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-xs font-medium uppercase tracking-wide text-neutral-400">
-        {label}
+      <span className="flex items-center justify-between text-xs font-medium uppercase tracking-wide text-ink-lo">
+        <span>{label}</span>
+        {value && <span className="text-ink-hi">{value}</span>}
       </span>
       {children}
     </label>

@@ -2,40 +2,181 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   Chroma design tokens
+   - Dark is the default theme; .theme-light overrides for light.
+   - The SPECTRAL chrome identity (--accent*, --spectrum) is the
+     stable "Chroma" brand. It does NOT track the user's palette.
+   - ThemeSync writes --palette-primary at runtime for palette-aware
+     accents (preview, etc.), kept separate from the brand chrome.
+   ============================================================ */
+
 :root {
   color-scheme: dark;
+
+  /* surfaces (dark default) — warm-tinted neutrals (~hue 285) */
+  --bg: #0a0b11;
+  --surface-1: #12131c;
+  --surface-2: #181a26;
+  --surface-3: #1f2230;
+
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  --text: #ecedf4;
+  --text-2: #a6abbd;
+  --text-3: #6c7286;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-3: 0 16px 48px rgba(0, 0, 0, 0.6);
+
+  /* spectral chrome identity (stable brand) */
+  --accent: #7c5cff; /* violet 305° */
+  --accent-2: #b15cff; /* fuchsia */
+  --accent-3: #38d9ff; /* cyan */
+  --accent-contrast: #ffffff;
+  --focus: #9a7bff;
+  --spectrum: linear-gradient(
+    135deg,
+    var(--accent) 0%,
+    var(--accent-2) 50%,
+    var(--accent-3) 100%
+  );
+  /* wider stop set for the animated sheen (background-position drifts) */
+  --spectrum-sheen: linear-gradient(
+    115deg,
+    var(--accent) 0%,
+    var(--accent-2) 25%,
+    var(--accent-3) 50%,
+    var(--accent-2) 75%,
+    var(--accent) 100%
+  );
+
+  /* palette-derived accent (set by ThemeSync) — NOT the brand chrome */
+  --palette-primary: #7c5cff;
+  --palette-on-primary: #ffffff;
+
+  /* status (chrome-level, glyph always paired in UI) */
+  --success: #3fb779;
+  --warning: #e0a93c;
+  --danger: #f0625d;
+
+  /* scale */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius: var(--radius-lg);
+
+  /* backward-compat aliases (older components) */
+  --panel: var(--surface-1);
+  --panel-2: var(--surface-2);
+  --muted: var(--text-2);
+}
+
+.theme-light {
+  color-scheme: light;
+
+  --bg: #fafafd;
+  --surface-1: #ffffff;
+  --surface-2: #f3f4f8;
+  --surface-3: #eceef4;
+
+  --border: rgba(16, 18, 28, 0.1);
+  --border-strong: rgba(16, 18, 28, 0.18);
+
+  --text: #15161d;
+  --text-2: #4a5060;
+  --text-3: #7a8092;
+
+  --shadow-1: 0 1px 2px rgba(16, 18, 28, 0.06);
+  --shadow-2: 0 8px 24px rgba(16, 18, 28, 0.1);
+  --shadow-3: 0 16px 48px rgba(16, 18, 28, 0.14);
+
+  --focus: #7c5cff;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 html,
 body {
-  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-feature-settings: "cv11", "ss01";
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-body {
-  margin: 0;
-  background: #0b0d12;
-  color: #e6e8ee;
-  font-family:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
-    Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
+/* focus ring — mandatory on all interactives */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 ::selection {
-  background: #3b82f6;
-  color: #fff;
+  background: color-mix(in oklab, var(--accent) 40%, transparent);
 }
 
-/* Thin scrollbars for the editor panels. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #2a2f3a transparent;
+/* animated spectral sheen — used on wordmark + primary button */
+@keyframes chroma-sheen {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
 }
-*::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+
+.chroma-spectrum-text {
+  background: var(--spectrum-sheen);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: chroma-sheen 8s linear infinite;
 }
-*::-webkit-scrollbar-thumb {
-  background: #2a2f3a;
+
+.chroma-spectrum-fill {
+  background: var(--spectrum-sheen);
+  background-size: 200% 100%;
+  animation: chroma-sheen 8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .chroma-spectrum-text,
+  .chroma-spectrum-fill {
+    background-size: 100% 100%;
+  }
+}
+
+/* scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
   border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-3);
 }

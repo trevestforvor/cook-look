@@ -17,6 +17,7 @@ export {
   normalizeHue,
   clamp,
   isInGamut,
+  displayRgb255,
   maxChroma,
 } from "./color.js";
 
@@ -36,7 +37,11 @@ export {
 export {
   harmonyOffsets,
   harmonyHues,
+  harmonyKind,
   chromaticSeedHues,
+  normalizeCustomAngles,
+  COMPOUND_OFFSETS,
+  type HarmonyKind,
   type HarmonyOptions,
 } from "./harmony.js";
 
@@ -56,7 +61,12 @@ export { fixContrast } from "./contrast-fix.js";
 export { deriveDarkMode, deriveLightMode, extractSeeds } from "./darkmode.js";
 
 // Auditing.
-export { auditPalette, evaluatePair, expectedChromaticOffsets } from "./audit.js";
+export {
+  auditPalette,
+  auditHarmonyFit,
+  evaluatePair,
+  expectedChromaticOffsets,
+} from "./audit.js";
 
 // Recolor.
 export { recolor } from "./recolor.js";
